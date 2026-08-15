@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WeightClass {
+  FLYWEIGHT
+  BANTAMWEIGHT
+  FEATHERWEIGHT
+  LIGHTWEIGHT
+  WELTERWEIGHT
+  MIDDLEWEIGHT
+  LIGHT_HEAVYWEIGHT
+  HEAVYWEIGHT
+}
+
+model Fighter {
+  id          String      @id @default(cuid())
+  firstName   String
+  lastName    String
+  nickname    String?
+  dob         DateTime?
+  weightClass WeightClass?
+  heightCm    Int?
+  reachCm     Int?
+  wins        Int         @default(0)
+  losses      Int         @default(0)
+  draws       Int         @default(0)
+  bio         String?
+  photoUrl    String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  fightsAsA Fight[] @relation("FighterA")
+  fightsAsB Fight[] @relation("FighterB")
+  rankings  Ranking[]
+}
+
+model Event {
+  id        String   @id @default(cuid())
+  name      String
+  date      DateTime
+  venue     String?
+  status    String   @default("scheduled")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fights Fight[]
+}
+
+model Fight {
+  id          String       @id @default(cuid())
+  event       Event        @relation(fields: [eventId], references: [id])
+  eventId     String
+  fighterA    Fighter      @relation("FighterA", fields: [fighterAId], references: [id])
+  fighterAId  String
+  fighterB    Fighter      @relation("FighterB", fields: [fighterBId], references: [id])
+  fighterBId  String
+  weightClass WeightClass?
+  winnerId    String?
+  method      String?
+  round       Int?
+  time        String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Ranking {
+  id          String      @id @default(cuid())
+  fighter     Fighter     @relation(fields: [fighterId], references: [id])
+  fighterId   String
+  weightClass WeightClass
+  rank        Int
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([weightClass, rank])
+}
