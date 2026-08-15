@@ -33,3 +33,15 @@ npm run dev:mobile    # Expo dev server (scan QR with Expo Go)
 ## Data model
 
 `Fighter`, `Event`, `Fight`, `Ranking` — see `apps/api/prisma/schema.prisma`.
+
+## Pending / TODO
+
+- [ ] Provision Postgres (local Docker/Postgres.app, or free-tier Supabase/Neon) and set `DATABASE_URL` in `apps/api/.env`
+- [ ] Run initial Prisma migration (`npx prisma migrate dev` in `apps/api`)
+- [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
+- [ ] Build admin CRUD (create/edit fighters, events, fight results)
+- [ ] Build public pages: fighter profile, event page, rankings page
+- [ ] Decide ranking method: manually set vs. auto-computed from win/loss
+- [ ] Fighter photo storage: local/public folder for now, or Supabase storage / S3-compatible bucket later
+- [ ] Admin auth (simple password gate to start; no public user accounts in v1)
+- [ ] Deploy: web → Vercel free tier, API + DB → Render/Fly.io + Supabase/Neon free tier
