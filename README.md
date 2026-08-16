@@ -9,6 +9,11 @@ Fighter profiles, events, and rankings — web + mobile, monorepo.
 - `apps/mobile` — Expo (React Native) app.
 - `packages/shared` — shared TypeScript types (`Fighter`, `Event`, `Fight`, `Ranking`).
 
+## Design
+
+[docs/system-design.md](docs/system-design.md) — architecture, data model, API surface,
+auth, deployment, and build order.
+
 ## Prerequisites
 
 - Node.js 20+
