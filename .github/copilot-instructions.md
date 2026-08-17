@@ -15,18 +15,20 @@ If anything here conflicts with a README, follow this file and `docs/` (ADRs win
 
 ## 2. Branch
 
-Never commit to `main`. Branch from latest `main`:
+Never commit to `main` or `develop`. `main` is production; keep it clean. All work PRs target **`develop`**.
+
+Branch from latest `develop`:
 
 | Prefix | Use |
 | --- | --- |
 | `feature/<short-name>` | New product work |
 | `fix/<short-name>` | Bugs |
 | `chore/<short-name>` | Tooling, deps, docs, CI |
-| `hotfix/<short-name>` | Urgent production patch |
+| `hotfix/<short-name>` | Urgent production patch (still PR into `develop`, then promote) |
 
 Lowercase kebab-case only (`feature/fighter-profile`). No `main-*` or personal branches.
 
-GitHub Actions [`.github/workflows/branch-policy.yml`](workflows/branch-policy.yml) rejects other names. PRs target `main` only; squash-merge when asked.
+GitHub Actions [`.github/workflows/branch-policy.yml`](workflows/branch-policy.yml): work PRs must target `develop` with a prefixed head; the only PR allowed into `main` is `develop` itself.
 
 Do **not** commit or push unless the user asks.
 
@@ -56,4 +58,5 @@ If the user asks for a later phase, say what must land first, then do the smalle
 ## 5. After the work
 
 - Summarize what changed and what is still open.
-- If the user wants a PR: branch name, commit, push, `gh pr create` targeting `main`.
+- If the user wants a PR: branch name, commit, push, `gh pr create --base develop`.
+- If the user wants a **release**: PR `develop` → `main` (merge commit, not squash). Never open feature/fix/chore PRs to `main`.
