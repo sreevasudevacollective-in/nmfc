@@ -15,6 +15,10 @@ RUN npm ci
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 
+# @nmfc/shared resolves to packages/shared/dist, so it must be compiled before the API
+# is. (.dockerignore strips **/dist from the build context, so it is never prebuilt.)
+RUN npm run build --workspace=packages/shared
+
 WORKDIR /repo/apps/api
 RUN npx prisma generate
 RUN npm run build

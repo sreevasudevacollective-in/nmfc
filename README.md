@@ -7,7 +7,8 @@ Fighter profiles, events, and rankings — web + mobile, monorepo.
 - `apps/web` — Next.js (Tailwind, TypeScript). Public site + admin.
 - `apps/api` — Fastify + Prisma API, shared by web and mobile.
 - `apps/mobile` — Expo (React Native) app.
-- `packages/shared` — shared TypeScript types (`Fighter`, `Event`, `Fight`, `Ranking`).
+- `packages/shared` — Zod schemas and the TypeScript types inferred from them. One
+  definition of the API contract, consumed by the API, web, and mobile.
 
 ## Design
 
@@ -26,14 +27,12 @@ Fighter profiles, events, and rankings — web + mobile, monorepo.
 npm install
 createdb nmfc
 cp apps/api/.env.example apps/api/.env   # set DATABASE_URL to your local Postgres
-cd apps/api && npx prisma migrate dev
+npm run build:shared                     # the API imports @nmfc/shared from dist/
+npm run migrate                          # apply migrations
+npm run seed                             # optional: 12 fighters, 3 events, rankings
 ```
 
-Optional — load sample fighters/events/rankings:
-
-```bash
-cd apps/api && npx tsx prisma/seed.ts
-```
+The seed is idempotent — re-running it updates in place rather than duplicating.
 
 ## Run locally
 
@@ -43,16 +42,40 @@ npm run dev:api       # Fastify on http://localhost:4000
 npm run dev:mobile    # Expo dev server (scan QR with Expo Go)
 ```
 
-## API endpoints
+If you change `packages/shared`, re-run `npm run build:shared` (or
+`npm run dev --workspace=packages/shared` to watch).
 
-- `GET /health`
-- `GET /fighters`
-- `GET /events` (includes fights)
-- `GET /rankings/:weightClass` (e.g. `LIGHTWEIGHT`)
+## API
+
+Versioned under `/v1` from day one — mobile clients in the wild can't be force-upgraded.
+Public reads are unauthenticated. Public lookups are by **slug**; ids are for admin
+mutations.
+
+```
+GET /health
+GET /v1/fighters?weightClass=&q=&page=&limit=    list + search
+GET /v1/fighters/:slug                            profile + fight history
+GET /v1/events?status=&page=&limit=               list
+GET /v1/events/:slug                              event + full card, main event first
+GET /v1/rankings                                  all divisions
+GET /v1/rankings/:weightClass                     one division
+```
+
+Lists return `{ data, page, limit, total }`. Errors return
+`{ error: { code, message, details? } }` with a matching HTTP status.
 
 ## Data model
 
-`Fighter`, `Event`, `Fight`, `Ranking` — see `apps/api/prisma/schema.prisma`.
+`Fighter`, `Event`, `Fight`, `Ranking`, plus `User`, `FighterProfile`, and `AuditLog` for
+fighter accounts — see `apps/api/prisma/schema.prisma`.
+
+Two rules worth knowing before touching it:
+
+- **Fight records are derived, never stored.** `wins/losses/draws` are computed from `Fight`
+  rows. The only stored counters are `prior*`, holding a fighter's record from other
+  promotions. Displayed record = prior + derived.
+- **Private data lives in `FighterProfile`, not `Fighter`.** The public API never queries
+  that table, so private fields cannot leak into a public response by omission.
 
 Prisma 7 keeps the connection URL in `apps/api/prisma.config.ts` (not the schema), and the
 runtime client requires the `@prisma/adapter-pg` driver adapter.
@@ -61,11 +84,19 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 
 - [x] Provision Postgres and set `DATABASE_URL` in `apps/api/.env`
 - [x] Run initial Prisma migration
-- [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
+- [x] Schema revisions: outcome enum, slugs, derived records, indexes, cascades
+- [x] Public read API with Zod validation and shared types
+- [x] Decide ranking method — manual for v1, admin-ordered
+- [ ] **Confirm weight classes** — the eight in the schema are placeholders; also whether
+      women's divisions are needed. Cheap to change now, expensive once the roster exists.
+- [ ] **Confirm the fighter intake field list** — needed to finalise `FighterProfile`
+- [ ] Is there existing fighter/event data to import?
 - [ ] Connect web frontend to the API (currently still the Next.js starter page)
-- [ ] Build admin CRUD (create/edit fighters, events, fight results)
-- [ ] Build public pages: fighter profile, event page, rankings page
-- [ ] Decide ranking method: manually set vs. auto-computed from win/loss
-- [ ] Fighter photo storage: local/public folder for now, or Supabase storage / S3-compatible bucket later
-- [ ] Admin auth (simple password gate to start; no public user accounts in v1)
-- [ ] Deploy: web → Vercel free tier, API + DB → Render/Fly.io + Supabase/Neon free tier
+- [ ] Build public pages: fighter profile, event page, rankings, home, search
+- [ ] Admin auth + CRUD (create/edit fighters, events, fight results, ranking reorder)
+- [ ] Fighter claim flow and self-service profile editing (ADR 0003)
+- [ ] Fighter photo storage: Supabase Storage with presigned uploads (schema stores keys,
+      not URLs)
+- [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
+- [ ] Custom SMTP before launch — Supabase's built-in email is test-only (2/hour)
+- [ ] Deploy: web → Vercel, API → Fly.io Mumbai, DB + storage → Supabase Mumbai

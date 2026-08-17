@@ -92,9 +92,10 @@ Fighter accounts add `User`, `FighterProfile` (private PII, deliberately a separ
 and `AuditLog`. Their shape and the field-ownership rules are in
 **[ADR 0003](decisions/0003-fighter-accounts.md)** — read it before touching `Fighter`.
 
-### 3.1 Problems with the current schema
+### 3.1 Problems with the scaffold schema — **resolved**
 
-The scaffold schema works but has gaps that get expensive to fix once real data exists:
+The scaffold schema worked but had gaps that get expensive to fix once real data exists.
+All eight are addressed by the migration in §3.2:
 
 | # | Issue | Consequence |
 |---|---|---|
@@ -107,7 +108,12 @@ The scaffold schema works but has gaps that get expensive to fix once real data 
 | 7 | No bout ordering on a card | Can't express main event vs prelims, or display a card in the right order. |
 | 8 | No indexes on `Fight.eventId`, `Event.date`, `Fighter.weightClass` | Fine at current size, but these are every hot query path. |
 
-### 3.2 Proposed schema changes
+### 3.2 Schema changes — **implemented**
+
+Applied in `apps/api/prisma/migrations/20260817060000_schema_revisions`. The migration is
+hand-written rather than generated: the generated diff adds `NOT NULL` slugs to populated
+tables and drops `winnerId` / `wins` / `losses` / `draws` before their meaning has been
+carried across. Each destructive step is preceded by its backfill.
 
 **Outcome as an explicit enum** — replaces the ambiguous nullable winner:
 
@@ -143,9 +149,10 @@ unambiguous without a foreign key that could point anywhere.
   not a full URL, so the CDN domain can change without a data migration (§7)
 - `onDelete: Cascade` on `Fight.event` and `Ranking.fighter`
 
-### 3.3 Fighter record — **Decision**
+### 3.3 Fighter record — **Decided: A (derive on read), with `prior*` columns**
 
-The `wins/losses/draws` fields duplicate what `Fight` rows already say. Three options:
+The `wins/losses/draws` fields duplicated what `Fight` rows already say. Three options were
+considered:
 
 | Option | How | Trade-off |
 |---|---|---|
@@ -153,14 +160,26 @@ The `wins/losses/draws` fields duplicate what `Fight` rows already say. Three op
 | **B. Denormalized cache** | Keep columns, recompute in the same transaction that records a result | Fast reads. Can drift if any write path forgets; needs a periodic reconciliation job. |
 | **C. Hybrid** | Derive as the source of truth, cache into the columns for list views | Best of both, most code. |
 
-**Recommendation: A.** At hundreds of fighters this is a trivial query, and correctness for
-free is worth more than micro-optimized reads. Revisit only if a listing page gets slow.
+**Chosen: A.** At hundreds of fighters this is a trivial query, and correctness for free is
+worth more than micro-optimized reads. Revisit only if a listing page gets slow.
+
+Implemented in `apps/api/src/services/record.ts`. The `wins/losses/draws` columns are gone.
 
 There's a wrinkle either way: fighters usually have a **pre-NMFC record** from other
-promotions. That can't be derived from our `Fight` table. Suggest explicit
-`priorWins / priorLosses / priorDraws` columns, with the displayed record being
-prior + derived-from-NMFC. This keeps "imported history" and "what we recorded"
-cleanly separated.
+promotions. That can't be derived from our `Fight` table. So `priorWins / priorLosses /
+priorDraws` columns remain, with the displayed record being prior + derived-from-NMFC. This
+keeps "imported history" and "what we recorded" cleanly separated.
+
+The migration backfills `prior*` as `old total − what our own Fight rows already account
+for`, rather than copying the old totals across — copying would double-count every bout
+NMFC had already recorded.
+
+**Cost of deriving.** Records are needed for every fighter in a list, so the services take
+a set of fighters and issue one batched fights query rather than one per fighter. Measured
+query counts are flat in the number of rows returned — 3 for a page of fighters whether the
+page holds 2 or 12; 5 for an event card; 8 for a fighter profile regardless of how many
+bouts they've had. Keeping this flat is the constraint that matters (§11), not the absolute
+count.
 
 ---
 
@@ -207,10 +226,13 @@ POST   /v1/admin/uploads               presigned URL for images
 
 ### Shared types
 
-`packages/shared` currently hand-maintains types that duplicate the Prisma schema — they
-will drift. Better: define Zod schemas in the API, infer TypeScript types from them, and
-export those through `packages/shared` for web and mobile. One definition, validation and
-types both derived from it.
+**Done.** `packages/shared` previously hand-maintained types duplicating the Prisma schema.
+It now defines Zod schemas with TypeScript types inferred from them — one definition, with
+validation and types both derived from it. The API validates requests against the same
+schemas the clients type their responses with.
+
+`@nmfc/shared` compiles to `dist/`, so it must be built before the API or web app
+(`npm run build:api` and `npm run build:web` handle the ordering).
 
 ---
 
@@ -228,14 +250,14 @@ that option is attractive. Rankings are **not** auto-updated here; see §6.
 
 ---
 
-## 6. Rankings — **Decision**
+## 6. Rankings — **Decided: manual for v1**
 
 | Option | Description | Trade-off |
 |---|---|---|
 | **Manual** | Admin sets the order per division | Total editorial control; matches how real promotions actually rank. Requires upkeep. |
 | **Computed** | Algorithm from wins/losses/recency/opponent quality | Zero upkeep, but needs enough fights to be meaningful and will produce odd results early on. |
 
-**Recommendation: manual for v1.** A new promotion has too few fights for any algorithm to
+**Chosen: manual for v1.** A new promotion has too few fights for any algorithm to
 produce a credible ordering, and rankings are an editorial statement. The `PUT
 /v1/admin/rankings/:weightClass` endpoint plus a drag-to-reorder admin UI covers it. Keep a
 computed *suggestion* as a later enhancement — surface a proposed order, let the admin
@@ -426,14 +448,14 @@ Fighter accounts introduce PII, which raises the bar ([ADR 0003](decisions/0003-
 
 Each phase should end somewhere shippable.
 
-**Phase 1 — Data foundation**
+**Phase 1 — Data foundation** ✅ *done*
 Schema revisions from §3.2, migration, expanded seed data.
 
-**Phase 2 — API**
+**Phase 2 — API** ✅ *done*
 Public read endpoints, Zod schemas, shared types wired to `packages/shared`.
 *Shippable: real data over HTTP.*
 
-**Phase 3 — Web public site**
+**Phase 3 — Web public site** ← next
 Fighter profile, event page, rankings, home, search. SEO metadata.
 *Shippable: a public site.*
 
@@ -455,16 +477,31 @@ solo.
 
 ## 14. Decisions needed
 
-| # | Decision | Recommendation |
+| # | Decision | Status |
 |---|---|---|
-| 1 | Fighter record: derived vs denormalized (§3.3) | Derived |
-| 2 | Track pre-NMFC records? (§3.3) | Yes — `prior*` columns |
-| 3 | Rankings: manual vs computed (§6) | Manual for v1 |
-| 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | Confirm; also whether women's divisions are needed |
-| 5 | Is there existing fighter/event data to import? | Affects Phase 1 |
+| 1 | Fighter record: derived vs denormalized (§3.3) | ✅ Derived |
+| 2 | Track pre-NMFC records? (§3.3) | ✅ Yes — `prior*` columns |
+| 3 | Rankings: manual vs computed (§6) | ✅ Manual for v1 |
+| 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | ⏳ **Open** — needs confirmation, including whether women's divisions are required |
+| 5 | Is there existing fighter/event data to import? | ⏳ **Open** |
 
-Items 4 and 5 are the ones I can't answer from the code — they're facts about how NMFC
-actually operates.
+Items 1–3 were built to the recommendation. Items 4 and 5 are facts about how NMFC actually
+operates and can't be settled from the code.
+
+Neither open item blocks Phase 3. Both are cheap to change now and expensive later:
+
+- **Weight classes (#4)** are a Postgres enum. Adding a division is a one-line migration;
+  renaming or removing one after fighters and rankings reference it is not. Worth
+  confirming before the roster is populated.
+- **Data import (#5)** decides whether Phase 4's admin CRUD is the only way records get in,
+  or whether a bulk importer is also needed. If a spreadsheet of existing fighters and
+  results exists, importing it is far cheaper than re-keying — and the `prior*` split (§3.3)
+  is exactly the column that imported history lands in.
+
+**Also open, carried from ADR 0003:** the fighter intake field list. `FighterProfile` covers
+contact and emergency details; ID documents and medical clearance are deliberately *not*
+collected pending confirmation that they're necessary, since they carry materially higher
+DPDP Act obligations.
 
 **Settled:** cloud platform, database engine, and image storage — see
 [ADR 0001](decisions/0001-cloud-platform.md).

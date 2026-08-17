@@ -1,3 +1,14 @@
+// NMFC data model.
+//
+// Shape and rationale: docs/system-design.md §3 and docs/decisions/0003-fighter-accounts.md.
+// Two rules worth knowing before editing:
+//
+//   1. A fighter's win/loss record is DERIVED from Fight rows, never stored (§3.3 option A).
+//      The only counters here are `prior*`, which hold pre-NMFC history that our Fight
+//      table cannot know about.
+//   2. Private personal data belongs in FighterProfile, never on Fighter. The public API
+//      never queries FighterProfile, so private fields cannot leak by omission (ADR 0003 §3).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,6 +17,12 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+// OPEN (system-design §14.4): these are placeholder divisions. NMFC's actual
+// weight classes, and whether women's divisions are needed, are still unconfirmed.
 enum WeightClass {
   FLYWEIGHT
   BANTAMWEIGHT
@@ -17,64 +34,224 @@ enum WeightClass {
   HEAVYWEIGHT
 }
 
+enum EventStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum FightStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+/// Explicit outcome, so "no winner" is never ambiguous between draw, no-contest,
+/// and not-yet-fought. WIN_A / WIN_B identify the winner by their side of the bout,
+/// which cannot point at a fighter who isn't in the fight.
+enum FightOutcome {
+  WIN_A
+  WIN_B
+  DRAW
+  NO_CONTEST
+}
+
+enum Role {
+  ADMIN
+  FIGHTER
+}
+
+enum ClaimStatus {
+  UNCLAIMED
+  INVITED
+  CLAIMED
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+/// Thin local mirror of a Supabase Auth user (ADR 0002). `id` is the Supabase UID —
+/// no password or session data lives here.
+model User {
+  id        String   @id
+  email     String   @unique
+  role      Role     @default(FIGHTER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fighter   Fighter?
+  auditLogs AuditLog[]
+}
+
+// ---------------------------------------------------------------------------
+// Public records
+// ---------------------------------------------------------------------------
+
 model Fighter {
-  id          String      @id @default(cuid())
+  id   String @id @default(cuid())
+  /// Public URL segment. Slugs are for humans and may change; use `id` for mutations.
+  slug String @unique
+
+  // ADMIN-owned (ADR 0003 §2)
   firstName   String
   lastName    String
   nickname    String?
-  dob         DateTime?
   weightClass WeightClass?
-  heightCm    Int?
-  reachCm     Int?
-  wins        Int         @default(0)
-  losses      Int         @default(0)
-  draws       Int         @default(0)
-  bio         String?
-  photoUrl    String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
 
-  fightsAsA Fight[] @relation("FighterA")
-  fightsAsB Fight[] @relation("FighterB")
+  // FIGHTER-owned, publicly readable
+  dob          DateTime?
+  heightCm     Int?
+  reachCm      Int?
+  gym          String?
+  hometown     String?
+  bio          String?
+  /// Storage key, not a URL — the CDN domain can change without a data migration (§7).
+  photoKey     String?
+  instagramUrl String?
+  facebookUrl  String?
+  xUrl         String?
+
+  // Record carried in from other promotions. The NMFC portion of a fighter's record is
+  // derived from Fight rows; the displayed record is prior + derived (§3.3).
+  priorWins   Int @default(0)
+  priorLosses Int @default(0)
+  priorDraws  Int @default(0)
+
+  // Account binding. Admins create the record; the fighter claims it (ADR 0003 §1).
+  user        User?       @relation(fields: [userId], references: [id])
+  userId      String?     @unique
+  claimStatus ClaimStatus @default(UNCLAIMED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile   FighterProfile?
+  fightsAsA Fight[]         @relation("FighterA")
+  fightsAsB Fight[]         @relation("FighterB")
   rankings  Ranking[]
+
+  @@index([weightClass])
+  @@index([lastName])
 }
 
 model Event {
-  id        String   @id @default(cuid())
+  id   String @id @default(cuid())
+  slug String @unique
+
   name      String
   date      DateTime
   venue     String?
-  status    String   @default("scheduled")
+  status    EventStatus @default(SCHEDULED)
+  /// Storage key, not a URL (§7).
+  posterKey String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   fights Fight[]
+
+  @@index([date])
 }
 
 model Fight {
-  id          String       @id @default(cuid())
-  event       Event        @relation(fields: [eventId], references: [id])
-  eventId     String
-  fighterA    Fighter      @relation("FighterA", fields: [fighterAId], references: [id])
-  fighterAId  String
-  fighterB    Fighter      @relation("FighterB", fields: [fighterBId], references: [id])
-  fighterBId  String
+  id String @id @default(cuid())
+
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+
+  fighterA   Fighter @relation("FighterA", fields: [fighterAId], references: [id])
+  fighterAId String
+  fighterB   Fighter @relation("FighterB", fields: [fighterBId], references: [id])
+  fighterBId String
+
   weightClass WeightClass?
-  winnerId    String?
-  method      String?
-  round       Int?
-  time        String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  /// Display order on the card; highest is the main event. Deliberately not unique —
+  /// a unique constraint makes reordering a card collide mid-update (§3.2).
+  boutOrder    Int     @default(0)
+  isTitleFight Boolean @default(false)
+
+  status  FightStatus   @default(SCHEDULED)
+  outcome FightOutcome?
+  method  String?
+  round   Int?
+  time    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId])
+  @@index([fighterAId])
+  @@index([fighterBId])
 }
 
+/// Manually ordered per division (§6). Rank uniqueness is enforced by the service on
+/// write, not by the database — a unique constraint turns any reorder into a
+/// constraint dance (§3.2).
 model Ranking {
-  id          String      @id @default(cuid())
-  fighter     Fighter     @relation(fields: [fighterId], references: [id])
+  id String @id @default(cuid())
+
+  fighter     Fighter     @relation(fields: [fighterId], references: [id], onDelete: Cascade)
   fighterId   String
   weightClass WeightClass
   rank        Int
   updatedAt   DateTime    @updatedAt
 
-  @@unique([weightClass, rank])
+  @@unique([weightClass, fighterId])
+  @@index([weightClass, rank])
+}
+
+// ---------------------------------------------------------------------------
+// Private data
+// ---------------------------------------------------------------------------
+
+/// Personal data, deliberately split from the public Fighter record so that a public
+/// query physically cannot return it (ADR 0003 §3).
+///
+/// NOT stored here, pending confirmation: ID documents and medical clearance. Those
+/// carry materially higher DPDP Act obligations than contact details and should be
+/// confirmed as necessary before being collected (ADR 0003, Open).
+model FighterProfile {
+  id        String  @id @default(cuid())
+  fighter   Fighter @relation(fields: [fighterId], references: [id], onDelete: Cascade)
+  fighterId String  @unique
+
+  // FIGHTER write, FIGHTER+ADMIN read
+  phone             String?
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  postalCode        String?
+  country           String?
+  emergencyName     String?
+  emergencyPhone    String?
+  emergencyRelation String?
+
+  // ADMIN write, ADMIN read
+  adminNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Field-level change history. Fighters edit their own profiles and publish immediately,
+/// so oversight is after the fact: log every change, let admins revert (ADR 0003 §4).
+model AuditLog {
+  id String @id @default(cuid())
+
+  actor   User?   @relation(fields: [actorId], references: [id])
+  /// Null for changes made by the system rather than a signed-in user.
+  actorId String?
+
+  entity   String
+  entityId String
+  field    String
+  before   String?
+  after    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }
