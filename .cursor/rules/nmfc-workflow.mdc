@@ -1,0 +1,13 @@
+---
+description: Always follow the NMFC copilot workflow before doing any work
+alwaysApply: true
+---
+
+# NMFC workflow
+
+At the start of **every** user prompt, before planning or editing:
+
+1. Read `.github/copilot-instructions.md` in full.
+2. Follow it: orient from docs, use the branching strategy, respect build order and ADRs, then implement.
+
+Do not skip that file. If a README disagrees with `docs/decisions/`, the ADR wins.
