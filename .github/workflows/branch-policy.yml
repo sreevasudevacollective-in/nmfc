@@ -1,0 +1,33 @@
+name: Branch policy
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  enforce:
+    name: Enforce branching strategy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate base and head branches
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BASE" != "main" ]; then
+            echo "::error::Pull requests must target main (got '${BASE}')."
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$HEAD" | grep -Eq '^(feature|fix|chore|hotfix)/[a-z0-9][a-z0-9._-]*$'; then
+            echo "::error::Branch '${HEAD}' must match feature|fix|chore|hotfix/<short-name> (lowercase kebab-case)."
+            echo "Allowed examples: feature/fighter-profile, fix/rankings-sort, chore/prisma-migrate, hotfix/cors"
+            exit 1
+          fi
+
+          echo "OK: ${HEAD} → ${BASE}"

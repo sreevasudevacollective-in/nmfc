@@ -2,6 +2,32 @@
 
 Fighter profiles, events, and rankings — web + mobile, monorepo.
 
+Maintainer: [AKHIL](https://github.com/akhilbellam)
+
+## Branching strategy
+
+`main` is always deployable. Do not commit to it directly.
+
+| Branch | Purpose |
+| --- | --- |
+| `main` | Production. Merge only via pull request. |
+| `feature/<short-name>` | New work (e.g. `feature/fighter-profile`). |
+| `fix/<short-name>` | Bug fixes (e.g. `fix/rankings-sort`). |
+| `chore/<short-name>` | Tooling, deps, docs (e.g. `chore/prisma-migrate`). |
+| `hotfix/<short-name>` | Urgent production patch. Branch from `main`, PR back to `main`. |
+
+**Workflow**
+
+1. Branch from the latest `main`.
+2. Keep branches short-lived and focused on one change.
+3. Open a pull request into `main`. Request review before merge.
+4. Squash-merge when the PR is approved and CI is green.
+5. Delete the branch after merge.
+
+Do not use long-lived personal or agent branches (`main-*`, `akhil-*`). If work is unfinished, keep it on a named `feature/` or `fix/` branch and open a draft PR.
+
+GitHub Actions enforces this on every pull request ([`.github/workflows/branch-policy.yml`](.github/workflows/branch-policy.yml)): the source branch must match `feature|fix|chore|hotfix/<short-name>`, and the PR must target `main`. Mark **Enforce branching strategy** as a required status check on `main` so merges cannot skip it.
+
 ## Structure
 
 - `apps/web` — Next.js (Tailwind, TypeScript). Public site + admin.
