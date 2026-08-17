@@ -1,8 +1,16 @@
 # ADR 0002 — Authentication
 
-**Status:** Accepted
+**Status:** Accepted — **provider amended by [ADR 0005](0005-gcp-platform.md)**
 **Date:** 2026-08-17
 **Supersedes:** the auth position in [ADR 0001](0001-cloud-platform.md) and system-design §8
+
+> **The provider is Firebase Auth, not Supabase Auth** (ADR 0005). Everything else in this
+> ADR stands: identity lives with the provider, a thin local `User` row is keyed by the
+> provider's UID, no RLS, Fastify verifies the JWT and reads a role claim, admins are users
+> with an elevated claim rather than a separate table.
+>
+> That the architecture survived a provider swap untouched is the point of having written it
+> this way. Read "Coexistence with Prisma" below substituting Firebase for Supabase.
 
 ---
 

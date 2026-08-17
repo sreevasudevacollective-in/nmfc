@@ -1,7 +1,21 @@
 # ADR 0001 — Cloud platform for API, database and storage
 
-**Status:** Accepted
+**Status:** ⚠️ **Superseded by [ADR 0005](0005-gcp-platform.md)**
 **Date:** 2026-08-17
+
+> Kept for the record. The platform is now Google Cloud, not Vercel + Fly + Supabase.
+>
+> Two things in this ADR were wrong and are worth knowing:
+>
+> 1. It dismissed the hyperscalers in two sentences without costing them. Done properly,
+>    GCP came in at roughly the same price with Cloud Run needing neither a load balancer
+>    nor a NAT gateway.
+> 2. The $25–30/month estimate assumed Vercel's free Hobby tier, which **prohibits
+>    commercial use**. The real figure for this stack was ~$50/month on Vercel Pro.
+>
+> What held up: keeping Postgres, co-locating API and database in Mumbai, mandatory
+> connection pooling, and the application-design constraints in "Scaling" — those are
+> carried forward unchanged.
 
 ---
 

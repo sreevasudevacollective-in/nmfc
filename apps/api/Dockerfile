@@ -30,7 +30,10 @@ WORKDIR /repo
 RUN apk add --no-cache openssl
 
 ENV NODE_ENV=production
-ENV PORT=4000
+
+# PORT is deliberately not set. Cloud Run injects it at runtime, and a baked-in value
+# here would just be a misleading default that the platform overrides. The app falls
+# back to 4000 when PORT is absent, which is what a plain `docker run` gets.
 
 # Dev dependencies are kept deliberately: the Prisma CLI is needed for
 # `migrate deploy`, which Fly runs as a release_command before cutover.

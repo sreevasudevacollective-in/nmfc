@@ -14,7 +14,10 @@ Fighter profiles, events, and rankings — web + mobile, monorepo.
 
 - [docs/system-design.md](docs/system-design.md) — architecture, data model, API surface,
   auth, deployment, and build order.
-- [docs/decisions/](docs/decisions/) — architecture decision records.
+- [docs/deployment-gcp.md](docs/deployment-gcp.md) — Google Cloud provisioning runbook.
+- [docs/decisions/](docs/decisions/) — architecture decision records. Note that **0001 is
+  superseded by 0005** (platform moved to Google Cloud) and **0002's provider is amended by
+  0005** (Firebase Auth, not Supabase Auth).
 
 ## Prerequisites
 
@@ -108,8 +111,10 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 - [ ] Build public pages: fighter profile, event page, rankings, home, search
 - [ ] Admin auth + CRUD (create/edit fighters, events, fight results, ranking reorder)
 - [ ] Fighter claim flow and self-service profile editing (ADR 0003)
-- [ ] Fighter photo storage: Supabase Storage with presigned uploads (schema stores keys,
-      not URLs)
+- [ ] Fighter photo storage: Cloud Storage with V4 signed-URL uploads (schema already
+      stores keys, not URLs, so this needs no data migration)
 - [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
-- [ ] Custom SMTP before launch — Supabase's built-in email is test-only (2/hour)
-- [ ] Deploy: web → Vercel, API → Fly.io Mumbai, DB + storage → Supabase Mumbai
+- [ ] **Choose a transactional email provider** — GCP has none native, and Firebase Auth's
+      default sender is test-only. Blocks auth work
+- [ ] Deploy: API + DB + storage → Google Cloud Mumbai, web → Vercel
+      (see [docs/deployment-gcp.md](docs/deployment-gcp.md); nothing provisioned yet)

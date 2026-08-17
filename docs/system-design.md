@@ -3,7 +3,8 @@
 Design for the NMFC fighter/event/rankings platform: one shared API serving a web app and a
 mobile app, backed by Postgres.
 
-Status: proposed. Sections marked **Decision** need your sign-off before implementation.
+Phases 1–2 are built. Decisions marked **Decided** are settled and reflected in the code;
+remaining open items are collected in §14.
 
 ---
 
@@ -15,8 +16,11 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - Rankings — per weight class
 - **Admin dashboard** (web) — create and manage the roster, events, results, rankings
 - **Accounts** — sign-up via email and Google ([ADR 0002](decisions/0002-authentication.md))
-- **Fighter self-service** — fighters claim an admin-created record and maintain their own
-  profile fields ([ADR 0003](decisions/0003-fighter-accounts.md))
+- **Fighter self-service** — fighters claim a record and maintain their own profile fields
+  ([ADR 0003](decisions/0003-fighter-accounts.md))
+- **Open applications** — anyone may apply via the eligibility form; NMFC reviews and
+  selects, and only an accepted application becomes a public `Fighter`
+  ([ADR 0004](decisions/0004-fighter-applications.md))
 
 **Explicitly out of v1**
 - Phone / SMS OTP login — deferred; requires TRAI DLT registration in India
@@ -36,7 +40,7 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 | Read/write ratio | Overwhelmingly read-heavy; writes only from a handful of admins |
 | Latency | Public pages < 500ms server response |
 | Availability | Best-effort; a few minutes of downtime is acceptable |
-| Cost | ~$25–30/month ([ADR 0001](decisions/0001-cloud-platform.md)) |
+| Cost | ~$45–60/month all in ([ADR 0005](decisions/0005-gcp-platform.md)) |
 
 The scale target matters: this is a **content site**, not a high-traffic transactional system.
 It justifies simple choices — one API instance, one Postgres, no cache layer, no queue.
@@ -201,7 +205,7 @@ GET  /v1/rankings/:weightClass                one division
 
 ### Admin (JWT required, admin role claim)
 
-Login and token issuance are handled by Supabase Auth, not by this API — there is no
+Login and token issuance are handled by Firebase Auth, not by this API — there is no
 `/v1/auth/login` endpoint. The API only *verifies* the JWT. See §8.
 
 ```
@@ -274,11 +278,12 @@ credentials in the app bundle.
 the API, uploads directly to storage, sends back the resulting key. The API never proxies
 image bytes, and no storage credentials ever reach a client.
 
-**Decided: Supabase Storage** (see [ADR 0001](decisions/0001-cloud-platform.md)) — it comes
-with the database vendor, so there's no extra account, bill, or region to keep aligned.
-Cloudflare R2 remains a reasonable swap if egress ever becomes the dominant cost; storing
-keys rather than URLs (below) keeps that migration cheap. Local filesystem is dev-only —
-ephemeral on most hosts.
+**Decided: Google Cloud Storage** (see [ADR 0005](decisions/0005-gcp-platform.md), which
+supersedes ADR 0001's choice of Supabase Storage) — same project, same bill, same region as
+the database. Uploads use V4 signed URLs. Cloudflare R2 remains a reasonable swap if egress
+ever becomes the dominant cost; storing keys rather than URLs (below) is what keeps that
+migration cheap, and it is why moving off Supabase Storage touched no data. Local filesystem
+is dev-only — ephemeral on most hosts.
 
 Store the **key**, not a full URL, so the CDN domain can change without a data migration.
 Derive display URLs at read time. Generate a couple of preset sizes (thumbnail for lists,
@@ -292,18 +297,23 @@ full for profiles) at upload — mobile especially shouldn't download a 2MB port
 Public accounts **are** in scope. Full rationale:
 **[ADR 0002 — Authentication](decisions/0002-authentication.md)**.
 
-**Supabase Auth** handles both public users and admins.
+**Firebase Auth** handles applicants, fighters and admins
+([ADR 0005](decisions/0005-gcp-platform.md) amends ADR 0002's choice of Supabase Auth —
+leaving Supabase for the database meant leaving it for auth, since the bundle was the point).
 
 | Concern | Choice |
 |---|---|
 | Methods (v1) | Email/password, Google OAuth |
 | Phone / SMS OTP | Deferred — see ADR 0002 before reintroducing |
-| Transactional email | Custom SMTP (Resend / SES / Postmark) |
-| Admin access | Same system, elevated role claim |
-| API verification | Fastify verifies the Supabase JWT |
+| Transactional email | Custom SMTP — provider still undecided |
+| Admin access | Same system, elevated role claim (Firebase custom claim) |
+| API verification | Fastify verifies the Firebase JWT |
 
-- Identity lives in Supabase's `auth` schema; a thin local `User` profile row is keyed by
-  the Supabase UID. Prisma still owns all application data.
+The architecture is unchanged by the provider swap, which is why it cost nothing:
+
+- Identity lives with the provider, not in Prisma's schema; a thin local `User` row is keyed
+  by the provider's UID. `User.id` is a plain string and does not care who issued it.
+  Prisma still owns all application data.
 - **No RLS.** It earns its keep when untrusted clients query Postgres directly; here the
   API is the only database client.
 - A `requireAdmin` hook checks the role claim and guards every `/v1/admin/*` route.
@@ -314,9 +324,11 @@ Public accounts **are** in scope. Full rationale:
 
 Two things that must be handled before launch:
 
-- **Custom SMTP.** Supabase's built-in email sends 2 messages/hour to pre-authorized
-  addresses with no delivery SLA — testing only. Even after configuring your own provider,
-  a default 30/hour limit applies until raised.
+- **Custom SMTP.** GCP has no native transactional email service, so an external provider
+  (Resend, SendGrid, Mailgun) is required and is **still undecided**. Firebase Auth's default
+  sender is rate-limited, unbranded and has no delivery SLA — usable for testing templates,
+  not for production. Verification mails, claim links and application decisions cannot
+  bounce.
 - **Account linking.** Decide explicitly whether a Google signup and a later email/password
   signup at the same address are one account or two.
 
@@ -358,26 +370,36 @@ Expo / React Native, sharing types (not UI) with web.
 
 ## 11. Deployment
 
-Platform choice and its full rationale: **[ADR 0001 — Cloud platform](decisions/0001-cloud-platform.md)**.
+Platform choice and its full rationale: **[ADR 0005 — Google Cloud](decisions/0005-gcp-platform.md)**,
+which supersedes ADR 0001. Provisioning runbook: **[deployment-gcp.md](deployment-gcp.md)**.
 
 | Component | Host | Region | Cost |
 |---|---|---|---|
-| Web | Vercel | Edge/global | $0–20 |
-| API | Fly.io | Mumbai (`bom`) | ~$5 |
-| Postgres + object storage | Supabase Pro | Mumbai (`ap-south-1`) | $25 |
+| Web | Vercel Pro | Edge/global | $20 |
+| API | Cloud Run | Mumbai (`asia-south1`) | $10–12 |
+| Postgres | Cloud SQL | Mumbai (`asia-south1`) | $10–12 |
+| Object storage | Cloud Storage | Mumbai (`asia-south1`) | ~$2 |
+| Auth | Firebase Auth | — | $0 |
+| Transactional email | External — undecided | — | $0–15 |
 | Mobile builds | EAS | — | $0 |
 
-~$25–30/month. API and database are **co-located in Mumbai** — this is deliberate. A page
-render issues several sequential queries, and splitting API from DB across regions makes
-each one pay ~50ms of cross-region round trip. Neon, Railway and Render have no India
-region, which is why they weren't chosen.
+~$45–60/month all in; ~$25–30 of that is GCP. API and database are **co-located in Mumbai**
+— this is deliberate. A page render issues several sequential queries, and splitting API
+from DB across regions makes each one pay ~50ms of cross-region round trip. Neon, Railway
+and Render have no India region, which is why they were never candidates.
+
+**Web stays on Vercel deliberately**, so this is two vendors rather than one. Edge caching
+via Next.js ISR is the dominant scaling lever below, and self-hosting Next.js on Cloud Run
+means adopting OpenNext/SST or giving up ISR and image optimization — not worth it to remove
+one line from the bill.
 
 Environments: **local** (Postgres via Homebrew, as set up) and **production**. A staging
 environment isn't worth the overhead yet — add one when a bad deploy would actually hurt.
 
 **Connection pooling is mandatory from day one.** Prisma opens a pool per instance, so
 scaling to several API containers during a fight-night spike exhausts Postgres connections
-long before CPU. Use Supabase's Supavisor. This is the most common way a Prisma app falls
+long before CPU. Use Cloud SQL Managed Connection Pooling. This is the most common way a
+Prisma app falls
 over under load, and retrofitting it mid-outage is miserable.
 
 ### Scaling
@@ -395,8 +417,8 @@ nights. Levers in order of actual impact:
 | Load | Action |
 |---|---|
 | Launch → ~10k daily | Default: one API instance, micro DB |
-| Fight-night spikes | Tune ISR revalidation; Fly autoscales. DB untouched. |
-| ~100k daily | Bump Supabase compute; add a read replica |
+| Fight-night spikes | Tune ISR revalidation; Cloud Run autoscales. DB untouched. |
+| ~100k daily | Bump the Cloud SQL tier; add a read replica |
 | Beyond | Multiple API regions, replica per region |
 
 Design constraints that keep this path open — these matter more than the vendor choice,
@@ -407,8 +429,10 @@ because they're what would *block* scaling later:
 - Watch N+1 queries — an event page fetching fighters in a loop is what melts under spike
 - Version the API (`/v1`); mobile clients can't be force-upgraded
 
-CI via GitHub Actions: typecheck, lint, and `prisma migrate deploy` on merge to `main`.
-Migrations run as a deploy step, never automatically at app boot.
+CI via Cloud Build (`apps/api/cloudbuild.yaml`): build, migrate, deploy — in that order.
+Migrations run as a Cloud Run Job between push and deploy, never automatically at app boot,
+where several instances starting together would race each other. A failed migration stops
+the build before the new revision takes traffic.
 
 ---
 

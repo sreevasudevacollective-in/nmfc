@@ -1,0 +1,75 @@
+# Build, migrate, deploy — in that order (ADR 0005).
+#
+# Build context is the repo root, not apps/api: npm workspaces need the root lockfile
+# and every workspace package.json to resolve.
+#
+# The migrate step is deliberately between push and deploy. Migrations must never run at
+# app boot — several Cloud Run instances booting at once would race each other — so they
+# run once, as a Cloud Run Job, and a failure here stops the build before the new revision
+# takes traffic.
+
+substitutions:
+  _REGION: asia-south1
+  _REPO: nmfc
+  _SERVICE: nmfc-api
+  _MIGRATE_JOB: nmfc-migrate
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=apps/api/Dockerfile
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$COMMIT_SHA
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api
+
+  # Point the migration job at the image we just built...
+  - id: migrate-job-image
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - update
+      - ${_MIGRATE_JOB}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$COMMIT_SHA
+
+  # ...and run it. `--wait` makes this step fail if the migration fails, which stops
+  # the build here rather than shipping code against an unmigrated database.
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - ${_MIGRATE_JOB}
+      - --region=${_REGION}
+      - --wait
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --region=${_REGION}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$COMMIT_SHA
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
