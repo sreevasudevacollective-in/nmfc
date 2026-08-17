@@ -11,8 +11,9 @@ Fighter profiles, events, and rankings — web + mobile, monorepo.
 
 ## Design
 
-[docs/system-design.md](docs/system-design.md) — architecture, data model, API surface,
-auth, deployment, and build order.
+- [docs/system-design.md](docs/system-design.md) — architecture, data model, API surface,
+  auth, deployment, and build order.
+- [docs/decisions/](docs/decisions/) — architecture decision records.
 
 ## Prerequisites
 

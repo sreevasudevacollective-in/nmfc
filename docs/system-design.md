@@ -236,9 +236,11 @@ credentials in the app bundle.
 the API, uploads directly to storage, sends back the resulting key. The API never proxies
 image bytes, and no storage credentials ever reach a client.
 
-- **Cloudflare R2** — S3-compatible, no egress fees, generous free tier. Recommended.
-- **Supabase Storage** — reasonable if we also use Supabase for Postgres.
-- **Local filesystem** — dev only; ephemeral on most hosts.
+**Decided: Supabase Storage** (see [ADR 0001](decisions/0001-cloud-platform.md)) — it comes
+with the database vendor, so there's no extra account, bill, or region to keep aligned.
+Cloudflare R2 remains a reasonable swap if egress ever becomes the dominant cost; storing
+keys rather than URLs (below) keeps that migration cheap. Local filesystem is dev-only —
+ephemeral on most hosts.
 
 Store the **key**, not a full URL, so the CDN domain can change without a data migration.
 Derive display URLs at read time. Generate a couple of preset sizes (thumbnail for lists,
@@ -300,26 +302,54 @@ Expo / React Native, sharing types (not UI) with web.
 
 ## 11. Deployment
 
-| Component | Host | Cost |
-|---|---|---|
-| Web | Vercel (free tier) | $0 |
-| API | Fly.io or Render (free/hobby tier) | $0 |
-| Postgres | Neon or Supabase (free tier) | $0 |
-| Images | Cloudflare R2 (free tier) | $0 |
-| Mobile builds | EAS (free tier) | $0 |
+Platform choice and its full rationale: **[ADR 0001 — Cloud platform](decisions/0001-cloud-platform.md)**.
 
-Environments: **local** (Postgres via Homebrew, as set up), **production**. A staging
-environment isn't worth the overhead at this size — add one when a bad deploy would actually
-hurt.
+| Component | Host | Region | Cost |
+|---|---|---|---|
+| Web | Vercel | Edge/global | $0–20 |
+| API | Fly.io | Mumbai (`bom`) | ~$5 |
+| Postgres + object storage | Supabase Pro | Mumbai (`ap-south-1`) | $25 |
+| Mobile builds | EAS | — | $0 |
 
-Two caveats on free tiers, both real:
-- Free API hosts **sleep when idle**; the first request after a quiet period can take
-  several seconds. Mitigate with a cheap uptime pinger, or upgrade to a ~$5/mo tier if it
-  becomes annoying.
-- Free Postgres tiers have connection limits well below what a naive serverless setup
-  opens. A single long-lived Fastify instance with one Prisma pool stays comfortably within
-  them — but this is a reason not to move the API to serverless functions later without
-  adding a pooler.
+~$25–30/month. API and database are **co-located in Mumbai** — this is deliberate. A page
+render issues several sequential queries, and splitting API from DB across regions makes
+each one pay ~50ms of cross-region round trip. Neon, Railway and Render have no India
+region, which is why they weren't chosen.
+
+Environments: **local** (Postgres via Homebrew, as set up) and **production**. A staging
+environment isn't worth the overhead yet — add one when a bad deploy would actually hurt.
+
+**Connection pooling is mandatory from day one.** Prisma opens a pool per instance, so
+scaling to several API containers during a fight-night spike exhausts Postgres connections
+long before CPU. Use Supabase's Supavisor. This is the most common way a Prisma app falls
+over under load, and retrofitting it mid-outage is miserable.
+
+### Scaling
+
+Traffic here is **spiky, not steadily growing** — low baseline with 50–100× bursts on fight
+nights. Levers in order of actual impact:
+
+1. **Edge caching (ISR + CDN)** — dominant. Spikes hit Vercel's edge, collapsing thousands
+   of readers into a handful of origin renders.
+2. **Connection pooling** — the first thing that breaks.
+3. **Read replicas** — rankings and profiles are pure reads.
+4. **Horizontal API scaling** — Fastify is stateless, so just more containers.
+5. **Vertical DB scaling** — boring, goes further than expected.
+
+| Load | Action |
+|---|---|
+| Launch → ~10k daily | Default: one API instance, micro DB |
+| Fight-night spikes | Tune ISR revalidation; Fly autoscales. DB untouched. |
+| ~100k daily | Bump Supabase compute; add a read replica |
+| Beyond | Multiple API regions, replica per region |
+
+Design constraints that keep this path open — these matter more than the vendor choice,
+because they're what would *block* scaling later:
+
+- Stateless API (JWT only, no in-memory sessions)
+- Never store images in Postgres or on container disk
+- Watch N+1 queries — an event page fetching fighters in a loop is what melts under spike
+- Version the API (`/v1`); mobile clients can't be force-upgraded
 
 CI via GitHub Actions: typecheck, lint, and `prisma migrate deploy` on merge to `main`.
 Migrations run as a deploy step, never automatically at app boot.
@@ -378,9 +408,11 @@ solo.
 | 1 | Fighter record: derived vs denormalized (§3.3) | Derived |
 | 2 | Track pre-NMFC records? (§3.3) | Yes — `prior*` columns |
 | 3 | Rankings: manual vs computed (§6) | Manual for v1 |
-| 4 | Image storage provider (§7) | Cloudflare R2 |
-| 5 | Weight classes — do the eight in the schema match NMFC's actual divisions? | Confirm; also whether women's divisions are needed |
-| 6 | Is there existing fighter/event data to import? | Affects Phase 1 |
+| 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | Confirm; also whether women's divisions are needed |
+| 5 | Is there existing fighter/event data to import? | Affects Phase 1 |
 
-Items 5 and 6 are the ones I can't answer from the code — they're facts about how NMFC
+Items 4 and 5 are the ones I can't answer from the code — they're facts about how NMFC
 actually operates.
+
+**Settled:** cloud platform, database engine, and image storage — see
+[ADR 0001](decisions/0001-cloud-platform.md).
