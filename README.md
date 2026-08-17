@@ -66,16 +66,21 @@ Lists return `{ data, page, limit, total }`. Errors return
 
 ## Data model
 
-`Fighter`, `Event`, `Fight`, `Ranking`, plus `User`, `FighterProfile`, and `AuditLog` for
-fighter accounts — see `apps/api/prisma/schema.prisma`.
+`Fighter`, `Event`, `Fight`, `Ranking`, plus `User`, `FighterProfile` and `AuditLog` for
+fighter accounts, and `Application` (with `ApplicationExperience` / `ApplicationVideo`) for
+intake — see `apps/api/prisma/schema.prisma`.
 
-Two rules worth knowing before touching it:
+Three rules worth knowing before touching it:
 
 - **Fight records are derived, never stored.** `wins/losses/draws` are computed from `Fight`
   rows. The only stored counters are `prior*`, holding a fighter's record from other
   promotions. Displayed record = prior + derived.
 - **Private data lives in `FighterProfile`, not `Fighter`.** The public API never queries
   that table, so private fields cannot leak into a public response by omission.
+- **`Application` has no public endpoint at all.** Intake is open, but a `Fighter` row is
+  created only when an admin accepts an application, so no unreviewed or rejected applicant
+  is ever publicly visible. Self-reported records live in `claimed*` fields and are never
+  copied automatically into `Fighter.prior*`.
 
 Prisma 7 keeps the connection URL in `apps/api/prisma.config.ts` (not the schema), and the
 runtime client requires the `@prisma/adapter-pg` driver adapter.
@@ -87,10 +92,14 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 - [x] Schema revisions: outcome enum, slugs, derived records, indexes, cascades
 - [x] Public read API with Zod validation and shared types
 - [x] Decide ranking method — manual for v1, admin-ordered
-- [ ] **Confirm weight classes** — the eight in the schema are placeholders; also whether
-      women's divisions are needed. Cheap to change now, expensive once the roster exists.
-- [ ] **Confirm the fighter intake field list** — needed to finalise `FighterProfile`
+- [x] Weight classes — men's divisions only in v1, single ruleset
+- [x] Fighter intake fields — settled by the eligibility form (ADR 0004)
+- [ ] **Retention policy for rejected applications** — required before intake goes live;
+      open intake means holding PII for everyone who applied and wasn't selected
+- [ ] Decide whether coach verification needs a real coach-side flow (currently applicant
+      self-entry, which carries no independent weight)
 - [ ] Is there existing fighter/event data to import?
+- [ ] Build the application form + admin review queue (needs auth first)
 - [ ] Connect web frontend to the API (currently still the Next.js starter page)
 - [ ] Build public pages: fighter profile, event page, rankings, home, search
 - [ ] Admin auth + CRUD (create/edit fighters, events, fight results, ranking reorder)

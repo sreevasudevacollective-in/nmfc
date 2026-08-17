@@ -482,26 +482,42 @@ solo.
 | 1 | Fighter record: derived vs denormalized (§3.3) | ✅ Derived |
 | 2 | Track pre-NMFC records? (§3.3) | ✅ Yes — `prior*` columns |
 | 3 | Rankings: manual vs computed (§6) | ✅ Manual for v1 |
-| 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | ⏳ **Open** — needs confirmation, including whether women's divisions are required |
+| 4 | Weight classes and divisions | ✅ Men's divisions only in v1; single ruleset |
 | 5 | Is there existing fighter/event data to import? | ⏳ **Open** |
+| 6 | Fighter intake fields | ✅ Settled by the eligibility form — [ADR 0004](decisions/0004-fighter-applications.md) |
 
-Items 1–3 were built to the recommendation. Items 4 and 5 are facts about how NMFC actually
-operates and can't be settled from the code.
+**#4** — NMFC competes under one ruleset, so the background disciplines on the intake form
+(boxing, Muay Thai, Sanda, and the rest) describe experience only; they do not scope events,
+bouts or divisions. Divisions stay a single eight-value enum, men's only for v1. `Gender` is
+collected for records and medical context and will scope divisions if women's divisions are
+added later.
 
-Neither open item blocks Phase 3. Both are cheap to change now and expensive later:
+**#5** still decides whether Phase 4's admin CRUD is the only way records get in, or whether
+a bulk importer is also needed. If a spreadsheet of existing fighters and results exists,
+importing it is far cheaper than re-keying — and the `prior*` split (§3.3) is exactly where
+imported history lands.
 
-- **Weight classes (#4)** are a Postgres enum. Adding a division is a one-line migration;
-  renaming or removing one after fighters and rankings reference it is not. Worth
-  confirming before the roster is populated.
-- **Data import (#5)** decides whether Phase 4's admin CRUD is the only way records get in,
-  or whether a bulk importer is also needed. If a spreadsheet of existing fighters and
-  results exists, importing it is far cheaper than re-keying — and the `prior*` split (§3.3)
-  is exactly the column that imported history lands in.
+### 14.1 Intake — two paths
 
-**Also open, carried from ADR 0003:** the fighter intake field list. `FighterProfile` covers
-contact and emergency details; ID documents and medical clearance are deliberately *not*
-collected pending confirmation that they're necessary, since they carry materially higher
-DPDP Act obligations.
+Both are supported, and they are not alternatives ([ADR 0004](decisions/0004-fighter-applications.md)):
+
+1. **Open application.** Anyone applies through the eligibility form. Applicants hold
+   accounts so they can draft, submit and track status. An `Application` is reviewed, and a
+   `Fighter` row is created only on acceptance — so no unreviewed applicant is ever publicly
+   visible.
+2. **Admin-created.** An admin creates the `Fighter` directly and issues a one-time claim
+   link, per [ADR 0003](decisions/0003-fighter-accounts.md) §1. No application involved;
+   `Fighter.applicationId` is nullable for exactly this case.
+
+Self-reported competition records from the form are stored as `claimed*` on the
+`Application` and never copied automatically into `Fighter.prior*` — a fighter typing their
+own record is an assertion, not a record. An admin transcribes what they have verified.
+
+**Open, and now more urgent than before:** a **retention policy for rejected applications**.
+Open intake means holding phone numbers, addresses, emergency contacts and medical
+declarations for everyone who ever applied and wasn't selected. ADR 0003 assumed a small
+contracted roster; that assumption no longer holds. Also unresolved: whether coach
+verification needs a genuine coach-side flow rather than applicant self-entry.
 
 **Settled:** cloud platform, database engine, and image storage — see
 [ADR 0001](decisions/0001-cloud-platform.md).

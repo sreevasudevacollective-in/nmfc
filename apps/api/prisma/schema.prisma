@@ -59,12 +59,87 @@ enum FightOutcome {
 enum Role {
   ADMIN
   FIGHTER
+  /// Holds an account and an application, but no Fighter record yet (ADR 0004).
+  APPLICANT
 }
 
 enum ClaimStatus {
   UNCLAIMED
   INVITED
   CLAIMED
+}
+
+/// Collected for records, medical context, and future gender-scoped divisions.
+/// Divisions are men's-only in v1, so this does not yet scope WeightClass.
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum Stance {
+  ORTHODOX
+  SOUTHPAW
+  SWITCH
+}
+
+/// Background disciplines a fighter brings in. NMFC competes under a single ruleset,
+/// so this describes experience — it does not scope events, bouts or divisions.
+enum Discipline {
+  BOXING
+  MUAY_THAI
+  KICKBOXING
+  SANDA
+  KARATE
+  TAEKWONDO
+  MMA
+  BJJ
+  WRESTLING
+  OTHER
+}
+
+enum ConditioningLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  ELITE
+}
+
+/// The §7 self-assessment checklist. Fixed list, no per-item data, so it is stored as
+/// an array on Application rather than a child table.
+enum FightAttribute {
+  PUNCHING_POWER
+  HAND_SPEED
+  KICKING_POWER
+  KICKING_SPEED
+  FOOTWORK
+  COUNTER_STRIKING
+  COMBINATION_STRIKING
+  DEFENCE
+  FIGHT_IQ
+  CARDIO
+  DURABILITY
+  EXPLOSIVENESS
+  PRESSURE_FIGHTING
+  TECHNICAL_STRIKING
+}
+
+enum VideoKind {
+  FULL_FIGHT
+  HIGHLIGHT
+  PAD_WORK
+  HEAVY_BAG
+  SHADOWBOXING
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  SHORTLISTED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
 }
 
 // ---------------------------------------------------------------------------
@@ -76,12 +151,16 @@ enum ClaimStatus {
 model User {
   id        String   @id
   email     String   @unique
-  role      Role     @default(FIGHTER)
+  role      Role     @default(APPLICANT)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  fighter   Fighter?
-  auditLogs AuditLog[]
+  fighter      Fighter?
+  /// Re-application is allowed. "Only one open at a time" is a service invariant —
+  /// a database constraint would block legitimate reapplication after a rejection.
+  applications Application[]
+  reviewed     Application[] @relation("ApplicationReviewer")
+  auditLogs    AuditLog[]
 }
 
 // ---------------------------------------------------------------------------
@@ -98,14 +177,19 @@ model Fighter {
   lastName    String
   nickname    String?
   weightClass WeightClass?
+  /// Admin-owned: it governs division eligibility, so it is not fighter-editable.
+  gender      Gender?
 
   // FIGHTER-owned, publicly readable
-  dob          DateTime?
-  heightCm     Int?
-  reachCm      Int?
-  gym          String?
-  hometown     String?
-  bio          String?
+  dob            DateTime?
+  heightCm       Int?
+  reachCm        Int?
+  stance         Stance?
+  primaryStyle   Discipline?
+  secondaryStyle Discipline?
+  gym            String?
+  hometown       String?
+  bio            String?
   /// Storage key, not a URL — the CDN domain can change without a data migration (§7).
   photoKey     String?
   instagramUrl String?
@@ -122,6 +206,12 @@ model Fighter {
   user        User?       @relation(fields: [userId], references: [id])
   userId      String?     @unique
   claimStatus ClaimStatus @default(UNCLAIMED)
+
+  /// Set when this fighter came from an accepted application. Nullable because the
+  /// ADR 0003 route — admin creates the record directly, fighter claims it — is
+  /// still supported and produces no application (ADR 0004 §1).
+  application   Application? @relation(fields: [applicationId], references: [id])
+  applicationId String?      @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -233,6 +323,168 @@ model FighterProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Applications (ADR 0004)
+// ---------------------------------------------------------------------------
+
+/// A submission to the NMFC Standard Fighter Eligibility Form.
+///
+/// **This model has no public endpoint — not a filtered one, none.** That is what keeps
+/// ADR 0003's guarantee intact under open intake: an unreviewed or rejected applicant
+/// cannot surface anywhere on the public site, because only an admin accepting an
+/// application mints a `Fighter`.
+///
+/// Not stored here, deliberately:
+///   - **Age** — derived from `dob`; a stored age goes stale.
+///   - **Total fights** — `claimedWins + claimedLosses + claimedDraws`.
+///   - **Minimum-gate eligibility** — computed from the answers below, not a flag.
+model Application {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  status ApplicationStatus @default(DRAFT)
+
+  // --- §1 Personal information -------------------------------------------
+  firstName    String
+  lastName     String
+  dob          DateTime
+  gender       Gender
+  nationality  String
+  city         String
+  state        String?
+  country      String
+  phone        String
+  email        String
+  instagramUrl String?
+  facebookUrl  String?
+  xUrl         String?
+
+  emergencyName     String
+  emergencyPhone    String
+  emergencyRelation String?
+
+  // --- §2 + §6 Fighter profile and physicals ------------------------------
+  // Height, reach and weight class are asked more than once on the form; they are
+  // stored once here (ADR 0004 §4).
+  nickname             String?
+  primaryStyle         Discipline
+  secondaryStyle       Discipline?
+  desiredWeightClass   WeightClass
+  heightCm             Int
+  reachCm              Int
+  walkingWeightKg      Decimal           @db.Decimal(5, 2)
+  competitionWeightKg  Decimal           @db.Decimal(5, 2)
+  legLengthCm          Int?
+  stance               Stance
+  yearsExperience      Int
+  trainingDaysPerWeek  Int
+  conditioning         ConditioningLevel
+
+  gym        String
+  headCoach  String
+  coachPhone String?
+  coachEmail String?
+
+  // --- §4 Competition record — SELF-REPORTED ------------------------------
+  // Every field below is an assertion by the applicant, never an official record.
+  // On acceptance an admin transcribes what they have verified into `Fighter.prior*`
+  // as a deliberate, audited act. Nothing here is copied automatically (ADR 0004 §2).
+  claimedWins            Int       @default(0)
+  claimedLosses          Int       @default(0)
+  claimedDraws           Int       @default(0)
+  claimedKoWins          Int       @default(0)
+  claimedDecisionWins    Int       @default(0)
+  claimedSubmissionWins  Int       @default(0)
+  claimedAmateurRecord   String?
+  claimedProRecord       String?
+  lastFightDate          DateTime?
+  nextFightDate          DateTime?
+  honours                String?
+  currentPromotion       String?
+
+  // --- §5 Eligibility -----------------------------------------------------
+  medicallyCleared          Boolean
+  underSuspension           Boolean
+  contractualRestriction    Boolean
+  willingMedicalScreening   Boolean
+  willingScouting           Boolean
+  willingSparringEvaluation Boolean
+  willingComplyRules        Boolean
+  willingAccurateRecords    Boolean
+
+  // --- §7 Self-assessed attributes ----------------------------------------
+  attributes FightAttribute[]
+
+  // --- §9 Coach verification ----------------------------------------------
+  // Applicant-entered. This is NOT independent verification — see ADR 0004, Open.
+  coachYearsWithFighter Int?
+  coachAssessment       String?
+  coachVerifiedRecord   Boolean @default(false)
+
+  // --- §10 Declarations ---------------------------------------------------
+  declaredAccurate        Boolean  @default(false)
+  ackIndependentMedical   Boolean  @default(false)
+  ackNoGuarantee          Boolean  @default(false)
+  agreedSafetyRules       Boolean  @default(false)
+  /// Consent timestamp for DPDP purposes; set when all four are affirmed.
+  declarationsAcceptedAt  DateTime?
+
+  // --- §11 Fighter declaration --------------------------------------------
+  motivation        String?
+  careerGoals       String?
+  differentiator    String?
+  influence         String?
+  willingToRelocate Boolean @default(false)
+
+  // --- Review -------------------------------------------------------------
+  submittedAt     DateTime?
+  reviewedBy      User?     @relation("ApplicationReviewer", fields: [reviewedById], references: [id])
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  experience ApplicationExperience[]
+  videos     ApplicationVideo[]
+  fighter    Fighter?
+
+  @@index([userId])
+  @@index([status, submittedAt])
+}
+
+/// §3 combat-sports background, one row per discipline. A child table rather than
+/// eight columns, so adding a discipline is data rather than a migration.
+model ApplicationExperience {
+  id            String      @id @default(cuid())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  applicationId String
+  discipline    Discipline
+  years         Int
+  record        String?
+  notes         String?
+
+  @@unique([applicationId, discipline])
+}
+
+/// §8 video submissions. Links only — NMFC hosts no footage at application stage,
+/// which avoids transcoding cost and the retention problem for rejected applicants
+/// (ADR 0004 §6). Links rot, so anything decisive should be captured during review.
+model ApplicationVideo {
+  id            String      @id @default(cuid())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  applicationId String
+  kind          VideoKind
+  url           String
+  label         String?
+  createdAt     DateTime    @default(now())
+
+  @@index([applicationId])
 }
 
 /// Field-level change history. Fighters edit their own profiles and publish immediately,
