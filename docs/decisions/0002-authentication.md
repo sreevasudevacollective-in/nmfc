@@ -1,8 +1,12 @@
 # ADR 0002 — Authentication
 
-**Status:** Accepted
+**Status:** Superseded by [ADR 0004](0004-hybrid-platform.md)
 **Date:** 2026-08-17
 **Supersedes:** the auth position in [ADR 0001](0001-cloud-platform.md) and system-design §8
+
+Identity is **Identity Platform**, not Supabase Auth. The rest of this note (JWT in Fastify, Prisma owns data, no RLS, email + Google, phone deferred, custom SMTP, thin local `User`) still holds — only the issuer changed.
+
+The **Decision** section below is historical (Supabase Auth). Do not implement it.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR 0001 — Cloud platform for API, database and storage
 
-**Status:** Accepted
+**Status:** Accepted (amended by [ADR 0004](0004-hybrid-platform.md) for identity)
 **Date:** 2026-08-17
 
 ---
@@ -29,9 +29,10 @@ The backend and database move to the cloud. Constraints as they actually stand:
 | Web | Vercel | Edge/global |
 | API | Fly.io | Mumbai (`bom`) |
 | Postgres + object storage | Supabase Pro | Mumbai (`ap-south-1`) |
+| Auth | Identity Platform (GCP) — see [ADR 0004](0004-hybrid-platform.md) | Global |
 | Mobile builds | EAS | — |
 
-Approximately $25–30/month.
+Approximately $30–50/month. Identity is **not** on Supabase.
 
 ## Rationale
 

@@ -38,7 +38,7 @@ moderation queue and a window in which fake profiles are live.
 ```
 Admin creates Fighter (UNCLAIMED)
   → claim link issued to fighter
-  → fighter signs up via Supabase Auth (email or Google)
+  → fighter signs up via Identity Platform (email or Google)
   → account binds to Fighter, status CLAIMED
   → fighter may now edit fighter-owned fields
 ```
@@ -94,7 +94,7 @@ Revisit if the roster opens up or grows past the point where admins notice bad e
 ### 5. Model shape
 
 ```
-User             // mirrors Supabase auth UID; role: ADMIN | FIGHTER
+User             // mirrors Identity Platform UID; role: ADMIN | FIGHTER
   └─ Fighter?    // one-to-one, null until claimed
 
 Fighter          // public record
@@ -105,8 +105,8 @@ Fighter          // public record
 AuditLog         // actor, entity, field, before, after, timestamp
 ```
 
-Identity itself stays in Supabase's `auth` schema (ADR 0002); `User` is a thin local mirror
-keyed by the Supabase UID.
+Identity itself stays in Identity Platform (ADR 0004); `User` is a thin local mirror
+keyed by the Identity Platform UID. Prisma does not manage the IdP.
 
 ## Consequences
 

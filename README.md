@@ -94,4 +94,4 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 - [ ] Decide ranking method: manually set vs. auto-computed from win/loss
 - [ ] Fighter photo storage: local/public folder for now, or Supabase storage / S3-compatible bucket later
 - [ ] Admin auth (simple password gate to start; no public user accounts in v1)
-- [ ] Deploy: web → Vercel free tier, API + DB → Render/Fly.io + Supabase/Neon free tier
+- [ ] Deploy: web → Vercel, API → Fly Mumbai, DB + files → Supabase Mumbai, auth → Identity Platform (ADR 0004)
