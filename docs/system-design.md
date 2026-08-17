@@ -14,7 +14,7 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - Events and fight cards — upcoming and past, with matchups and results
 - Rankings — per weight class
 - **Admin dashboard** (web) — create and manage the roster, events, results, rankings
-- **Accounts** — sign-up via email and Google ([ADR 0002](decisions/0002-authentication.md))
+- **Accounts** — sign-up via email and Google ([ADR 0004](decisions/0004-hybrid-platform.md))
 - **Fighter self-service** — fighters claim an admin-created record and maintain their own
   profile fields ([ADR 0003](decisions/0003-fighter-accounts.md))
 
@@ -36,7 +36,7 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 | Read/write ratio | Overwhelmingly read-heavy; writes only from a handful of admins |
 | Latency | Public pages < 500ms server response |
 | Availability | Best-effort; a few minutes of downtime is acceptable |
-| Cost | ~$25–30/month ([ADR 0001](decisions/0001-cloud-platform.md)) |
+| Cost | ~$30–50/month ([ADR 0004](decisions/0004-hybrid-platform.md)) |
 
 The scale target matters: this is a **content site**, not a high-traffic transactional system.
 It justifies simple choices — one API instance, one Postgres, no cache layer, no queue.
@@ -182,7 +182,7 @@ GET  /v1/rankings/:weightClass                one division
 
 ### Admin (JWT required, admin role claim)
 
-Login and token issuance are handled by Supabase Auth, not by this API — there is no
+Login and token issuance are handled by Identity Platform, not by this API — there is no
 `/v1/auth/login` endpoint. The API only *verifies* the JWT. See §8.
 
 ```
@@ -252,8 +252,9 @@ credentials in the app bundle.
 the API, uploads directly to storage, sends back the resulting key. The API never proxies
 image bytes, and no storage credentials ever reach a client.
 
-**Decided: Supabase Storage** (see [ADR 0001](decisions/0001-cloud-platform.md)) — it comes
-with the database vendor, so there's no extra account, bill, or region to keep aligned.
+**Decided: Supabase Storage** (see [ADR 0001](decisions/0001-cloud-platform.md) and
+[ADR 0004](decisions/0004-hybrid-platform.md)) — same project as Postgres. Do not put
+files on GCS while the database is still on Supabase.
 Cloudflare R2 remains a reasonable swap if egress ever becomes the dominant cost; storing
 keys rather than URLs (below) keeps that migration cheap. Local filesystem is dev-only —
 ephemeral on most hosts.
@@ -267,34 +268,34 @@ full for profiles) at upload — mobile especially shouldn't download a 2MB port
 
 ## 8. Auth
 
-Public accounts **are** in scope. Full rationale:
-**[ADR 0002 — Authentication](decisions/0002-authentication.md)**.
+Public accounts **are** in scope. Full stack:
+**[ADR 0004 — Hybrid platform](decisions/0004-hybrid-platform.md)** (supersedes
+[ADR 0002](decisions/0002-authentication.md)).
 
-**Supabase Auth** handles both public users and admins.
+**Identity Platform** (Firebase Authentication on GCP) handles both public users and admins.
+Postgres and files stay on Supabase. Fastify only verifies the JWT.
 
 | Concern | Choice |
 |---|---|
 | Methods (v1) | Email/password, Google OAuth |
-| Phone / SMS OTP | Deferred — see ADR 0002 before reintroducing |
-| Transactional email | Custom SMTP (Resend / SES / Postmark) |
+| Phone / SMS OTP | Deferred — see ADR 0002/0004 before reintroducing |
+| Transactional email | Resend SMTP into Identity Platform |
 | Admin access | Same system, elevated role claim |
-| API verification | Fastify verifies the Supabase JWT |
+| API verification | Fastify verifies the Identity Platform JWT |
 
-- Identity lives in Supabase's `auth` schema; a thin local `User` profile row is keyed by
-  the Supabase UID. Prisma still owns all application data.
+- Identity lives in Identity Platform; a thin local `User` profile row is keyed by
+  the IdP UID (`sub`). Prisma still owns all application data.
 - **No RLS.** It earns its keep when untrusted clients query Postgres directly; here the
   API is the only database client.
 - A `requireAdmin` hook checks the role claim and guards every `/v1/admin/*` route.
   There is no separate `AdminUser` table.
 - Mobile stores tokens in `expo-secure-store` — **never** `AsyncStorage`, which is
-  plaintext on disk. Web uses httpOnly cookies.
+  plaintext on disk. Web prefers Firebase session cookies (httpOnly) for SSR.
 - Rate-limit auth endpoints (`@fastify/rate-limit`).
 
 Two things that must be handled before launch:
 
-- **Custom SMTP.** Supabase's built-in email sends 2 messages/hour to pre-authorized
-  addresses with no delivery SLA — testing only. Even after configuring your own provider,
-  a default 30/hour limit applies until raised.
+- **Custom SMTP (Resend).** Do not ship on Identity Platform’s default email.
 - **Account linking.** Decide explicitly whether a Google signup and a later email/password
   signup at the same address are one account or two.
 
@@ -336,19 +337,23 @@ Expo / React Native, sharing types (not UI) with web.
 
 ## 11. Deployment
 
-Platform choice and its full rationale: **[ADR 0001 — Cloud platform](decisions/0001-cloud-platform.md)**.
+Compute, database, and storage: **[ADR 0001](decisions/0001-cloud-platform.md)**.
+Identity and the hybrid seam: **[ADR 0004](decisions/0004-hybrid-platform.md)**.
 
 | Component | Host | Region | Cost |
 |---|---|---|---|
 | Web | Vercel | Edge/global | $0–20 |
 | API | Fly.io | Mumbai (`bom`) | ~$5 |
 | Postgres + object storage | Supabase Pro | Mumbai (`ap-south-1`) | $25 |
+| Auth | Identity Platform | Global | $0 until 50k MAU |
+| Email | Resend | — | free tier, then usage |
 | Mobile builds | EAS | — | $0 |
 
-~$25–30/month. API and database are **co-located in Mumbai** — this is deliberate. A page
+~$30–50/month. API and database are **co-located in Mumbai** — this is deliberate. A page
 render issues several sequential queries, and splitting API from DB across regions makes
 each one pay ~50ms of cross-region round trip. Neon, Railway and Render have no India
-region, which is why they weren't chosen.
+region, which is why they weren't chosen. Auth is the one GCP service; do not add Cloud
+Run, Cloud SQL, or GCS while data still lives on Supabase.
 
 Environments: **local** (Postgres via Homebrew, as set up) and **production**. A staging
 environment isn't worth the overhead yet — add one when a bad deploy would actually hurt.
@@ -466,5 +471,6 @@ solo.
 Items 4 and 5 are the ones I can't answer from the code — they're facts about how NMFC
 actually operates.
 
-**Settled:** cloud platform, database engine, and image storage — see
-[ADR 0001](decisions/0001-cloud-platform.md).
+**Settled:** cloud platform, database engine, image storage, and hybrid auth — see
+[ADR 0001](decisions/0001-cloud-platform.md) and
+[ADR 0004](decisions/0004-hybrid-platform.md).
