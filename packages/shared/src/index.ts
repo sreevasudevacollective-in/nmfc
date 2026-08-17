@@ -229,3 +229,274 @@ export const eventListQuerySchema = paginationQuerySchema.extend({
   status: eventStatusSchema.optional(),
 });
 export type EventListQuery = z.infer<typeof eventListQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// Applications — see docs/decisions/0004-fighter-applications.md
+// ---------------------------------------------------------------------------
+
+export const genderSchema = z.enum(["MALE", "FEMALE", "OTHER"]);
+export type Gender = z.infer<typeof genderSchema>;
+
+export const stanceSchema = z.enum(["ORTHODOX", "SOUTHPAW", "SWITCH"]);
+export type Stance = z.infer<typeof stanceSchema>;
+
+export const disciplineSchema = z.enum([
+  "BOXING", "MUAY_THAI", "KICKBOXING", "SANDA", "KARATE",
+  "TAEKWONDO", "MMA", "BJJ", "WRESTLING", "OTHER",
+]);
+export type Discipline = z.infer<typeof disciplineSchema>;
+
+export const conditioningLevelSchema = z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED", "ELITE"]);
+export type ConditioningLevel = z.infer<typeof conditioningLevelSchema>;
+
+export const fightAttributeSchema = z.enum([
+  "PUNCHING_POWER", "HAND_SPEED", "KICKING_POWER", "KICKING_SPEED", "FOOTWORK",
+  "COUNTER_STRIKING", "COMBINATION_STRIKING", "DEFENCE", "FIGHT_IQ", "CARDIO",
+  "DURABILITY", "EXPLOSIVENESS", "PRESSURE_FIGHTING", "TECHNICAL_STRIKING",
+]);
+export type FightAttribute = z.infer<typeof fightAttributeSchema>;
+
+export const videoKindSchema = z.enum([
+  "FULL_FIGHT", "HIGHLIGHT", "PAD_WORK", "HEAVY_BAG", "SHADOWBOXING",
+]);
+export type VideoKind = z.infer<typeof videoKindSchema>;
+
+export const applicationStatusSchema = z.enum([
+  "DRAFT", "SUBMITTED", "UNDER_REVIEW", "SHORTLISTED",
+  "ACCEPTED", "DEFERRED", "REJECTED", "WITHDRAWN",
+]);
+export type ApplicationStatus = z.infer<typeof applicationStatusSchema>;
+
+// --- Eligibility rules -----------------------------------------------------
+
+/**
+ * Hard minimum age. Not merely an eligibility rule: under India's DPDP Act a minor's
+ * data requires verifiable parental consent, so accepting an under-18 application would
+ * pull NMFC into a materially different compliance regime. Blocked at intake.
+ */
+export const MINIMUM_AGE = 18;
+
+/** Minimum years of structured training the intake gate expects. */
+export const MINIMUM_YEARS_EXPERIENCE = 3;
+
+/** Whole years completed between two dates. */
+export function ageOn(dob: Date, on: Date): number {
+  let age = on.getUTCFullYear() - dob.getUTCFullYear();
+  const monthDelta = on.getUTCMonth() - dob.getUTCMonth();
+
+  if (monthDelta < 0 || (monthDelta === 0 && on.getUTCDate() < dob.getUTCDate())) {
+    age -= 1;
+  }
+
+  return age;
+}
+
+export function meetsMinimumAge(dob: Date, on: Date = new Date()): boolean {
+  return ageOn(dob, on) >= MINIMUM_AGE;
+}
+
+/**
+ * The form's minimum eligibility gate, computed rather than stored.
+ *
+ * Only the mechanically checkable parts live here. "Active fighter" and "verifiable
+ * combat-sports experience" are reviewer judgement and deliberately absent — a gate that
+ * pretends to decide them would be lying about what it checked.
+ */
+export interface GateInput {
+  dob: Date;
+  yearsExperience: number;
+  underSuspension: boolean;
+  contractualRestriction: boolean;
+  willingComplyRules: boolean;
+  willingMedicalScreening: boolean;
+}
+
+export interface GateResult {
+  /** False only for the blocking failures — age and active suspension. */
+  eligible: boolean;
+  /** Machine-readable reasons, for both UI messaging and reviewer triage. */
+  failures: string[];
+  /** Non-blocking concerns a reviewer should see. */
+  warnings: string[];
+}
+
+export function evaluateMinimumGate(input: GateInput, on: Date = new Date()): GateResult {
+  const failures: string[] = [];
+  const warnings: string[] = [];
+
+  // Blocking.
+  if (!meetsMinimumAge(input.dob, on)) failures.push("UNDER_MINIMUM_AGE");
+  if (input.underSuspension) failures.push("ACTIVE_SUSPENSION");
+
+  // Non-blocking: recorded, surfaced to the reviewer, but not an automatic refusal.
+  // A hard block here would discard near-misses NMFC may want in the pipeline.
+  if (input.yearsExperience < MINIMUM_YEARS_EXPERIENCE) warnings.push("BELOW_MINIMUM_EXPERIENCE");
+  if (input.contractualRestriction) warnings.push("CONTRACTUAL_RESTRICTION");
+  if (!input.willingComplyRules) warnings.push("UNWILLING_TO_COMPLY");
+  if (!input.willingMedicalScreening) warnings.push("UNWILLING_MEDICAL_SCREENING");
+
+  return { eligible: failures.length === 0, failures, warnings };
+}
+
+// --- Edit permissions ------------------------------------------------------
+
+/**
+ * An applicant may edit only while the application is a draft. It locks on submission;
+ * after that an admin edits on their behalf and the change is audit-logged. Reviewers
+ * cannot assess a moving target.
+ */
+export function isApplicantEditable(status: ApplicationStatus): boolean {
+  return status === "DRAFT";
+}
+
+/** An applicant may pull out any time before a decision, but cannot reopen for editing. */
+export function isApplicantWithdrawable(status: ApplicationStatus): boolean {
+  return status === "SUBMITTED" || status === "UNDER_REVIEW" || status === "SHORTLISTED";
+}
+
+/** Outcomes retained as a talent pipeline rather than closed out. */
+export function isPipelineStatus(status: ApplicationStatus): boolean {
+  return status === "DEFERRED";
+}
+
+// --- Submission payload ----------------------------------------------------
+
+const optionalUrl = z.string().trim().url().max(500).optional();
+const requiredText = (max: number) => z.string().trim().min(1).max(max);
+
+/**
+ * The eligibility form payload. Mirrors the form's sections, but stores each fact once —
+ * the form asks for height, reach, weight class and coach contact more than once.
+ *
+ * Age and total fights are absent by design: both are derived (ADR 0004 §3).
+ */
+export const applicationInputSchema = z
+  .object({
+    // §1 Personal information
+    firstName: requiredText(80),
+    lastName: requiredText(80),
+    dob: z.coerce.date(),
+    gender: genderSchema,
+    nationality: requiredText(80),
+    city: requiredText(120),
+    state: z.string().trim().max(120).optional(),
+    country: requiredText(80),
+    phone: requiredText(30),
+    email: z.string().trim().email().max(255),
+    instagramUrl: optionalUrl,
+    facebookUrl: optionalUrl,
+    xUrl: optionalUrl,
+    emergencyName: requiredText(160),
+    emergencyPhone: requiredText(30),
+    emergencyRelation: z.string().trim().max(80).optional(),
+
+    // §2 + §6 Fighter profile and physicals
+    nickname: z.string().trim().max(80).optional(),
+    primaryStyle: disciplineSchema,
+    secondaryStyle: disciplineSchema.optional(),
+    desiredWeightClass: weightClassSchema,
+    heightCm: z.number().int().min(120).max(250),
+    reachCm: z.number().int().min(120).max(260),
+    walkingWeightKg: z.number().min(30).max(250),
+    competitionWeightKg: z.number().min(30).max(250),
+    legLengthCm: z.number().int().min(40).max(140).optional(),
+    stance: stanceSchema,
+    yearsExperience: z.number().int().min(0).max(60),
+    trainingDaysPerWeek: z.number().int().min(1).max(7),
+    conditioning: conditioningLevelSchema,
+    gym: requiredText(160),
+    headCoach: requiredText(160),
+    coachPhone: z.string().trim().max(30).optional(),
+    coachEmail: z.string().trim().email().max(255).optional(),
+
+    // §3 Combat-sports background
+    experience: z
+      .array(
+        z.object({
+          discipline: disciplineSchema,
+          years: z.number().int().min(0).max(60),
+          record: z.string().trim().max(120).optional(),
+          notes: z.string().trim().max(1000).optional(),
+        }),
+      )
+      .max(10)
+      .default([]),
+
+    // §4 Competition record — self-reported, never official
+    claimedWins: z.number().int().min(0).max(500).default(0),
+    claimedLosses: z.number().int().min(0).max(500).default(0),
+    claimedDraws: z.number().int().min(0).max(500).default(0),
+    claimedKoWins: z.number().int().min(0).max(500).default(0),
+    claimedDecisionWins: z.number().int().min(0).max(500).default(0),
+    claimedSubmissionWins: z.number().int().min(0).max(500).default(0),
+    claimedAmateurRecord: z.string().trim().max(120).optional(),
+    claimedProRecord: z.string().trim().max(120).optional(),
+    lastFightDate: z.coerce.date().optional(),
+    nextFightDate: z.coerce.date().optional(),
+    honours: z.string().trim().max(2000).optional(),
+    currentPromotion: z.string().trim().max(160).optional(),
+
+    // §5 Eligibility
+    medicallyCleared: z.boolean(),
+    underSuspension: z.boolean(),
+    contractualRestriction: z.boolean(),
+    willingMedicalScreening: z.boolean(),
+    willingScouting: z.boolean(),
+    willingSparringEvaluation: z.boolean(),
+    willingComplyRules: z.boolean(),
+    willingAccurateRecords: z.boolean(),
+
+    // §7 Attributes
+    attributes: z.array(fightAttributeSchema).max(14).default([]),
+
+    // §8 Video — links only, no uploads
+    videos: z
+      .array(
+        z.object({
+          kind: videoKindSchema,
+          url: z.string().trim().url().max(500),
+          label: z.string().trim().max(160).optional(),
+        }),
+      )
+      .max(20)
+      .default([]),
+
+    // §9 Coach verification — applicant-entered, not independently verified
+    coachYearsWithFighter: z.number().int().min(0).max(60).optional(),
+    coachAssessment: z.string().trim().max(4000).optional(),
+    coachVerifiedRecord: z.boolean().default(false),
+
+    // §10 Declarations — all four required to submit
+    declaredAccurate: z.literal(true),
+    ackIndependentMedical: z.literal(true),
+    ackNoGuarantee: z.literal(true),
+    agreedSafetyRules: z.literal(true),
+
+    // §11 Fighter declaration
+    motivation: z.string().trim().max(4000).optional(),
+    careerGoals: z.string().trim().max(4000).optional(),
+    differentiator: z.string().trim().max(4000).optional(),
+    influence: z.string().trim().max(500).optional(),
+    willingToRelocate: z.boolean().default(false),
+  })
+  .refine((v) => meetsMinimumAge(v.dob), {
+    path: ["dob"],
+    message: `Applicants must be at least ${MINIMUM_AGE} years old.`,
+  })
+  .refine((v) => !v.underSuspension, {
+    path: ["underSuspension"],
+    message: "Fighters under suspension by an athletic commission cannot apply.",
+  })
+  .refine(
+    (v) => v.claimedKoWins + v.claimedDecisionWins + v.claimedSubmissionWins <= v.claimedWins,
+    {
+      path: ["claimedWins"],
+      message: "Wins by method cannot exceed total wins.",
+    },
+  )
+  .refine((v) => v.secondaryStyle !== v.primaryStyle, {
+    path: ["secondaryStyle"],
+    message: "Secondary style must differ from primary style.",
+  });
+
+export type ApplicationInput = z.infer<typeof applicationInputSchema>;

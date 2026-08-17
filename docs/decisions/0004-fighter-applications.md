@@ -89,7 +89,68 @@ Applicants submit URLs. NMFC stores no footage at application stage — no trans
 gigabytes per applicant, and no retention problem for rejected applicants' video. The
 trade is that links rot or go private; reviewers should capture what matters during review.
 
-### 7. Applicants are users
+### 7. Under-18 applications are blocked at intake
+
+Not merely an eligibility rule. Under the DPDP Act a minor's personal data requires
+verifiable parental consent, so accepting one under-18 application would pull NMFC into a
+materially different compliance regime for the sake of an applicant who cannot compete
+anyway. Blocked on date of birth before the form is accepted.
+
+Age is computed, never stored (§3). The boundary is tested: the day of an applicant's
+eighteenth birthday passes, the day before does not.
+
+### 8. Locked on submission; only an admin edits after that
+
+An applicant may edit freely while the application is a `DRAFT`. On submission it locks —
+reviewers cannot assess a moving target. After that only an admin may edit, and every such
+edit is audit-logged.
+
+An applicant may still **withdraw** before a decision. Withdrawing does not reopen the
+application for editing; it closes it.
+
+### 9. Three outcomes, not two
+
+"Not selected" is two different things, and collapsing them makes the talent pipeline
+useless:
+
+| Outcome | Meaning | Retention |
+|---|---|---|
+| `ACCEPTED` | Onto the roster; `Fighter` created | Becomes a fighter record |
+| `DEFERRED` | Not now, worth revisiting — the pipeline | Retained deliberately, with feedback |
+| `REJECTED` | Declined, not to be pursued | Minimal retention |
+
+Without the split, a pipeline query returns everyone who was ever turned down — including
+applicants refused for cause, such as a falsified record or an active suspension. Those are
+people NMFC would never invite back, and they must not appear in a "who should we look at
+again" list.
+
+`DEFERRED` carries two supporting fields: `developmentFeedback`, which is shown **to** the
+applicant so they know what to work on, and `revisitAfter`, which puts them back on the
+review queue at the right time. `developmentFeedback` is deliberately separate from
+`reviewNotes` — internal assessment must never leak into an applicant-facing view.
+
+### 10. Retention is a stated purpose, not indefinite storage
+
+Non-accepted applications are kept so applicants can be developed and reconsidered. That is
+a legitimate purpose, and it is what makes the retention defensible — but it has to be
+*stated*, bounded, and minimised, or it is just indefinite storage of other people's
+personal data.
+
+Two distinct events, hence two timestamps:
+
+- **`minimisedAt`** — the fields the pipeline does not need are purged: emergency contact,
+  address, medical declarations. Those were collected so someone could safely *compete*; for
+  an applicant who is not competing, that purpose has lapsed. What survives is
+  scouting-relevant: name, contact, discipline, weight class, experience, attributes, coach,
+  video links, reviewer assessment.
+- **`retainUntil`** — end of the retention window, after which the record is deleted or
+  anonymised.
+
+The **purpose must be disclosed on the form** at consent time — an applicant has to know
+their application may be kept for future consideration. Without that notice the retention
+has no basis.
+
+### 11. Applicants are users
 
 `Role` gains `APPLICANT`. An applicant holds an account before any `Fighter` exists, so
 `User` is no longer one-to-one with `Fighter` in practice — it is one-to-optional, exactly
@@ -123,12 +184,27 @@ time, which is a service invariant rather than a constraint.
 
 ## Open
 
-- **Retention.** How long is a rejected application kept, and what is deleted versus
-  anonymised? Nothing is built here yet; it needs a decision before the form goes live.
-- **Coach verification (§9).** Currently modelled as fields the *applicant* fills in, plus a
-  flag. A real coach-side verification — emailing the coach a token to confirm the record
-  independently — is a materially larger feature and is not built. If a coach's confirmation
-  is meant to carry evidential weight, self-entry does not provide it.
+- **Retention window length.** The mechanism exists (`minimisedAt`, `retainUntil`); the
+  numbers do not. How many months is a `DEFERRED` application held before deletion, and does
+  a `REJECTED` one get a shorter window? Needed before intake goes live.
+- **Which fields survive minimisation.** The list above is a proposal, not a decision.
+- **Coach verification (§9).** Currently fields the *applicant* fills in, plus a flag. That
+  is self-attestation wearing the coach's name — it carries no independent weight. Real
+  verification means emailing the coach a token to confirm the record themselves, which is a
+  materially larger feature and is not built. If a coach's confirmation is meant to be
+  evidence, this does not provide it.
+- **First admin account.** How the initial `ADMIN` user is created is undefined — a seed
+  script, or a manual role promotion. Deferred by decision, but it blocks Phase 4.
 - **Consent capture.** The §10 declarations are stored with a timestamp. Whether a versioned
-  terms document must be retained alongside them is a DPDP question.
+  terms document must be retained alongside them is a DPDP question. The retention purpose
+  (§10 above) must appear in that notice.
 - Whether accepted applicants' video links should be archived before they rot.
+
+## Decision log
+
+| Question | Answer |
+|---|---|
+| Block under-18 applications? | Yes, hard block at intake |
+| Editable after submission? | No — locked; admin edits only, audit-logged |
+| Retain non-accepted applications? | Yes, as a talent pipeline with development feedback |
+| How is the first admin created? | Deferred |

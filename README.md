@@ -94,10 +94,14 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 - [x] Decide ranking method — manual for v1, admin-ordered
 - [x] Weight classes — men's divisions only in v1, single ruleset
 - [x] Fighter intake fields — settled by the eligibility form (ADR 0004)
-- [ ] **Retention policy for rejected applications** — required before intake goes live;
-      open intake means holding PII for everyone who applied and wasn't selected
+- [x] Intake rules — under-18 blocked, locked on submission, non-accepted applications
+      retained as a talent pipeline (ADR 0004)
+- [ ] **Retention window length** — the mechanism exists (`minimisedAt`, `retainUntil`), the
+      numbers don't. Needed before intake goes live, along with the consent notice that
+      discloses the retention purpose
 - [ ] Decide whether coach verification needs a real coach-side flow (currently applicant
       self-entry, which carries no independent weight)
+- [ ] Decide how the first `ADMIN` account is created (deferred; blocks Phase 4)
 - [ ] Is there existing fighter/event data to import?
 - [ ] Build the application form + admin review queue (needs auth first)
 - [ ] Connect web frontend to the API (currently still the Next.js starter page)

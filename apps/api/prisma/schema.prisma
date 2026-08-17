@@ -138,6 +138,12 @@ enum ApplicationStatus {
   UNDER_REVIEW
   SHORTLISTED
   ACCEPTED
+  /// Not now, but worth revisiting — the talent pipeline. Retained deliberately so the
+  /// applicant can be given development feedback and reconsidered in a later cycle.
+  DEFERRED
+  /// Declined and not to be pursued. Kept distinct from DEFERRED so the pipeline never
+  /// surfaces applicants who were turned down for cause, such as a falsified record or
+  /// an active suspension.
   REJECTED
   WITHDRAWN
 }
@@ -440,12 +446,30 @@ model Application {
   willingToRelocate Boolean @default(false)
 
   // --- Review -------------------------------------------------------------
+  // Locked to the applicant once submitted; only an admin may edit after that, and every
+  // such edit is audit-logged. `reviewNotes` is internal and never shown to the applicant.
   submittedAt     DateTime?
   reviewedBy      User?     @relation("ApplicationReviewer", fields: [reviewedById], references: [id])
   reviewedById    String?
   reviewedAt      DateTime?
   reviewNotes     String?
   rejectionReason String?
+
+  /// Shown TO the applicant — what to work on before reapplying. Deliberately separate
+  /// from the internal `reviewNotes`, which must never leak into an applicant-facing view.
+  developmentFeedback String?
+  /// For DEFERRED applications: when this should come back onto the review queue.
+  revisitAfter        DateTime?
+
+  // --- Retention (ADR 0004) ----------------------------------------------
+  // Non-accepted applications are kept as a talent pipeline, which is a stated purpose
+  // rather than indefinite storage. Two distinct events, so two timestamps:
+  /// Set when the fields the pipeline does not need — emergency contact, address, medical
+  /// declarations — have been purged. Scouting-relevant data survives; safety data
+  /// collected for competing does not, because that purpose has lapsed.
+  minimisedAt DateTime?
+  /// End of the retention window, after which the record is deleted or anonymised.
+  retainUntil DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
