@@ -13,9 +13,10 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - Fighter profiles — bio, physical stats, career record, fight history
 - Events and fight cards — upcoming and past, with matchups and results
 - Rankings — per weight class
-- Admin tooling to enter and edit all of the above
-
-- **Public accounts** — sign-up via email and Google ([ADR 0002](decisions/0002-authentication.md))
+- **Admin dashboard** (web) — create and manage the roster, events, results, rankings
+- **Accounts** — sign-up via email and Google ([ADR 0002](decisions/0002-authentication.md))
+- **Fighter self-service** — fighters claim an admin-created record and maintain their own
+  profile fields ([ADR 0003](decisions/0003-fighter-accounts.md))
 
 **Explicitly out of v1**
 - Phone / SMS OTP login — deferred; requires TRAI DLT registration in India
@@ -87,6 +88,10 @@ Route handlers should not touch Prisma directly. Result recording in particular
 
 ## 3. Data model
 
+Fighter accounts add `User`, `FighterProfile` (private PII, deliberately a separate table)
+and `AuditLog`. Their shape and the field-ownership rules are in
+**[ADR 0003](decisions/0003-fighter-accounts.md)** — read it before touching `Fighter`.
+
 ### 3.1 Problems with the current schema
 
 The scaffold schema works but has gaps that get expensive to fix once real data exists:
@@ -134,6 +139,9 @@ unambiguous without a foreign key that could point anywhere.
   Uniqueness of *rank* is enforced in the service on write, not by the DB — this makes
   reordering a single transaction instead of a constraint dance.
 - Indexes on `Fight.eventId`, `Event.date`, `Fighter.weightClass`, plus the slug uniques
+- `Fighter.photoUrl` → `photoKey`, and `Event.posterKey` added — store the storage **key**,
+  not a full URL, so the CDN domain can change without a data migration (§7)
+- `onDelete: Cascade` on `Fight.event` and `Ranking.fighter`
 
 ### 3.3 Fighter record — **Decision**
 
@@ -391,8 +399,26 @@ Migrations run as a deploy step, never automatically at app boot.
 - Rate limiting on login and on public reads
 - Secrets in host environment config, never committed — `.env` is gitignored and should stay
   that way
-- Admin actions audit-logged (who changed what, when); results and rankings are the
-  public record of the promotion, and "who edited this" will eventually be asked
+- All mutations audit-logged (actor, entity, field, before/after). Results and rankings are
+  the public record of the promotion, and fighters now edit their own data — "who changed
+  this" will be asked.
+
+### Personal data
+
+Fighter accounts introduce PII, which raises the bar ([ADR 0003](decisions/0003-fighter-accounts.md)):
+
+- **Private fields live in a separate `FighterProfile` table**, never in the public
+  `Fighter` record. A serialization allowlist fails open when someone adds a column;
+  separate tables fail closed.
+- **Field-level authorization** — a fighter editing their own record must be checked per
+  field, not merely "is this your record." Fighters must not be able to write their own
+  win/loss record.
+- Claim links are credentials: single-use, expiring, revocable.
+- **India's DPDP Act** applies to this collection — consent capture, purpose limitation,
+  deletion rights. Confirm before collecting ID documents or medical certificates; those
+  carry materially higher obligations than a bio.
+- Account deletion must preserve fight history (it forms part of *other* fighters' records)
+  — anonymise the profile, keep the bouts.
 
 ---
 
