@@ -15,11 +15,17 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - Rankings — per weight class
 - Admin tooling to enter and edit all of the above
 
+- **Public accounts** — sign-up via email and Google ([ADR 0002](decisions/0002-authentication.md))
+
 **Explicitly out of v1**
-- Public user accounts, predictions, comments, forums
+- Phone / SMS OTP login — deferred; requires TRAI DLT registration in India
+- Predictions, comments, forums
 - Live/round-by-round scoring
 - Ticketing or payments
 - Multi-promotion data (NMFC only)
+
+> **Open:** accounts exist, but no logged-in features are yet defined. What sign-up unlocks
+> needs settling before the `User` profile model is built — see ADR 0002.
 
 **Non-functional targets**
 
@@ -29,7 +35,7 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 | Read/write ratio | Overwhelmingly read-heavy; writes only from a handful of admins |
 | Latency | Public pages < 500ms server response |
 | Availability | Best-effort; a few minutes of downtime is acceptable |
-| Cost | $0–10/month |
+| Cost | ~$25–30/month ([ADR 0001](decisions/0001-cloud-platform.md)) |
 
 The scale target matters: this is a **content site**, not a high-traffic transactional system.
 It justifies simple choices — one API instance, one Postgres, no cache layer, no queue.
@@ -166,10 +172,12 @@ GET  /v1/rankings                             all weight classes
 GET  /v1/rankings/:weightClass                one division
 ```
 
-### Admin (JWT required)
+### Admin (JWT required, admin role claim)
+
+Login and token issuance are handled by Supabase Auth, not by this API — there is no
+`/v1/auth/login` endpoint. The API only *verifies* the JWT. See §8.
 
 ```
-POST   /v1/auth/login
 POST   /v1/admin/fighters          PATCH/DELETE /v1/admin/fighters/:id
 POST   /v1/admin/events            PATCH/DELETE /v1/admin/events/:id
 POST   /v1/admin/events/:id/fights     add bout to card
@@ -251,18 +259,36 @@ full for profiles) at upload — mobile especially shouldn't download a 2MB port
 
 ## 8. Auth
 
-v1 has no public accounts, so this only guards the admin surface.
+Public accounts **are** in scope. Full rationale:
+**[ADR 0002 — Authentication](decisions/0002-authentication.md)**.
 
-- Small `AdminUser` table: email, `argon2` password hash, role
-- `POST /v1/auth/login` → short-lived JWT access token (~15 min) + longer refresh token
-- Web stores tokens in httpOnly cookies; mobile in `expo-secure-store` — **never**
-  `AsyncStorage`, which is plaintext on disk
-- A `requireAdmin` Fastify hook guards every `/v1/admin/*` route
-- Rate-limit login attempts (`@fastify/rate-limit`)
+**Supabase Auth** handles both public users and admins.
 
-Deliberately **not** using a third-party auth provider: a handful of internal admins doesn't
-justify the dependency or cost. The design leaves room for public accounts later — that's
-when a provider starts earning its keep.
+| Concern | Choice |
+|---|---|
+| Methods (v1) | Email/password, Google OAuth |
+| Phone / SMS OTP | Deferred — see ADR 0002 before reintroducing |
+| Transactional email | Custom SMTP (Resend / SES / Postmark) |
+| Admin access | Same system, elevated role claim |
+| API verification | Fastify verifies the Supabase JWT |
+
+- Identity lives in Supabase's `auth` schema; a thin local `User` profile row is keyed by
+  the Supabase UID. Prisma still owns all application data.
+- **No RLS.** It earns its keep when untrusted clients query Postgres directly; here the
+  API is the only database client.
+- A `requireAdmin` hook checks the role claim and guards every `/v1/admin/*` route.
+  There is no separate `AdminUser` table.
+- Mobile stores tokens in `expo-secure-store` — **never** `AsyncStorage`, which is
+  plaintext on disk. Web uses httpOnly cookies.
+- Rate-limit auth endpoints (`@fastify/rate-limit`).
+
+Two things that must be handled before launch:
+
+- **Custom SMTP.** Supabase's built-in email sends 2 messages/hour to pre-authorized
+  addresses with no delivery SLA — testing only. Even after configuring your own provider,
+  a default 30/hour limit applies until raised.
+- **Account linking.** Decide explicitly whether a Google signup and a later email/password
+  signup at the same address are one account or two.
 
 ---
 
