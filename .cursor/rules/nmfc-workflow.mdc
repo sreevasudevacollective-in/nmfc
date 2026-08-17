@@ -11,3 +11,5 @@ At the start of **every** user prompt, before planning or editing:
 2. Follow it: orient from docs, use the branching strategy, respect build order and ADRs, then implement.
 
 Do not skip that file. If a README disagrees with `docs/decisions/`, the ADR wins.
+
+**Branches:** never commit to `main` or `develop`. Work PRs target **`develop`**. `main` only receives `develop` (release).
