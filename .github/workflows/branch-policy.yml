@@ -19,8 +19,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "$BASE" != "main" ]; then
-            echo "::error::Pull requests must target main (got '${BASE}')."
+          # Work lands on develop. main stays production-clean: only develop may merge into it.
+          if [ "$BASE" = "main" ]; then
+            if [ "$HEAD" != "develop" ]; then
+              echo "::error::main only accepts pull requests from develop (got '${HEAD}'). Open work PRs against develop."
+              exit 1
+            fi
+            echo "OK: develop → main (release)"
+            exit 0
+          fi
+
+          if [ "$BASE" != "develop" ]; then
+            echo "::error::Pull requests must target develop (got '${BASE}'). main is release-only."
             exit 1
           fi
 
@@ -30,4 +40,4 @@ jobs:
             exit 1
           fi
 
-          echo "OK: ${HEAD} → ${BASE}"
+          echo "OK: ${HEAD} → develop"
