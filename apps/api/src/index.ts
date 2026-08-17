@@ -8,7 +8,17 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 const app = Fastify({ logger: true });
 
-await app.register(cors, { origin: true });
+// Allowlist from env. `origin: true` (reflect any origin) is fine locally but must
+// never reach production — see docs/system-design.md §12.
+const allowedOrigins = process.env.CORS_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean);
+
+if (process.env.NODE_ENV === "production" && !allowedOrigins?.length) {
+  throw new Error("CORS_ORIGINS must be set in production");
+}
+
+await app.register(cors, {
+  origin: allowedOrigins?.length ? allowedOrigins : true,
+});
 
 app.get("/health", async () => ({ status: "ok" }));
 
