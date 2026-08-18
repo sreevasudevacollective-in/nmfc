@@ -17,8 +17,37 @@ enum WeightClass {
   HEAVYWEIGHT
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum ApplicationStatus {
+  DRAFT
+  PENDING_REVIEW
+  REJECTED
+  ACCEPTED
+  WITHDRAWN
+}
+
+/// Local mirror of Identity Platform. Prisma does not store passwords.
+model User {
+  id        String   @id @default(cuid())
+  authUid   String   @unique
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fighter      Fighter?
+  applications FighterApplication[]
+  reviews      FighterApplication[] @relation("ApplicationReviewer")
+  audits       AuditLog[]
+}
+
+/// Public roster only. Created when an admin accepts an application.
 model Fighter {
-  id          String      @id @default(cuid())
+  id          String       @id @default(cuid())
+  slug        String       @unique
   firstName   String
   lastName    String
   nickname    String?
@@ -26,17 +55,92 @@ model Fighter {
   weightClass WeightClass?
   heightCm    Int?
   reachCm     Int?
-  wins        Int         @default(0)
-  losses      Int         @default(0)
-  draws       Int         @default(0)
+  priorWins   Int          @default(0)
+  priorLosses Int          @default(0)
+  priorDraws  Int          @default(0)
+  wins        Int          @default(0)
+  losses      Int          @default(0)
+  draws       Int          @default(0)
   bio         String?
+  gym         String?
+  hometown    String?
+  instagram   String?
+  photoKey    String?
   photoUrl    String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  fightsAsA Fight[] @relation("FighterA")
-  fightsAsB Fight[] @relation("FighterB")
-  rankings  Ranking[]
+  fightsAsA    Fight[]              @relation("FighterA")
+  fightsAsB    Fight[]              @relation("FighterB")
+  rankings     Ranking[]
+  profile      FighterProfile?
+  application  FighterApplication?
+
+  @@index([weightClass])
+}
+
+/// Private PII — never included in public fighter queries.
+model FighterProfile {
+  id             String   @id @default(cuid())
+  fighterId      String   @unique
+  fighter        Fighter  @relation(fields: [fighterId], references: [id], onDelete: Cascade)
+  phone          String?
+  address        String?
+  emergencyName  String?
+  emergencyPhone String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+/// Applicant intake. Not public until ACCEPTED (then a Fighter row exists).
+model FighterApplication {
+  id             String            @id @default(cuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         ApplicationStatus @default(DRAFT)
+  draftStep      Int               @default(1)
+  firstName      String?
+  lastName       String?
+  nickname       String?
+  dob            DateTime?
+  weightClass    WeightClass?
+  heightCm       Int?
+  reachCm        Int?
+  gym            String?
+  hometown       String?
+  instagram      String?
+  bio            String?
+  photoKey       String?
+  email          String
+  phone          String?
+  address        String?
+  reviewerUserId String?
+  reviewer       User?             @relation("ApplicationReviewer", fields: [reviewerUserId], references: [id])
+  reviewedAt     DateTime?
+  reviewNotes    String?
+  fighterId      String?           @unique
+  fighter        Fighter?          @relation(fields: [fighterId], references: [id])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+  entityType  String
+  entityId    String
+  field       String
+  before      String?
+  after       String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
 }
 
 model Event {
@@ -66,6 +170,8 @@ model Fight {
   time        String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+
+  @@index([eventId])
 }
 
 model Ranking {

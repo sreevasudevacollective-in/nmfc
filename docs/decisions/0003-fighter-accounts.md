@@ -1,8 +1,8 @@
 # ADR 0003 — Fighter accounts and field ownership
 
-**Status:** Accepted
+**Status:** Accepted (roster path superseded by [ADR 0005](0005-fighter-applications.md))
 **Date:** 2026-08-17
-**Builds on:** [ADR 0002 — Authentication](0002-authentication.md)
+**Builds on:** [ADR 0004](0004-hybrid-platform.md)
 
 ---
 
@@ -26,22 +26,10 @@ needs an explicit owner.
 
 ## Decision
 
-### 1. Roster is closed; admin-created, fighter-claimed
+### 1. Roster path — **superseded**
 
-Admins create fighter records in the dashboard. The system issues a one-time claim link to
-the fighter, who signs up through it; their account binds to that record.
-
-Impersonation is structurally impossible because the promotion controls who is invited.
-The alternative — open self-registration with approval after the fact — creates a
-moderation queue and a window in which fake profiles are live.
-
-```
-Admin creates Fighter (UNCLAIMED)
-  → claim link issued to fighter
-  → fighter signs up via Identity Platform (email or Google)
-  → account binds to Fighter, status CLAIMED
-  → fighter may now edit fighter-owned fields
-```
+Open signup + application + admin accept: **[ADR 0005](0005-fighter-applications.md)**.
+Do not implement claim links. Field ownership below still applies **after** accept.
 
 ### 2. Every field has three independent properties
 
@@ -93,20 +81,8 @@ Revisit if the roster opens up or grows past the point where admins notice bad e
 
 ### 5. Model shape
 
-```
-User             // mirrors Identity Platform UID; role: ADMIN | FIGHTER
-  └─ Fighter?    // one-to-one, null until claimed
-
-Fighter          // public record
-  ├─ userId        (nullable — null while UNCLAIMED)
-  ├─ claimStatus   UNCLAIMED | INVITED | CLAIMED
-  └─ FighterProfile?   // private PII, separate table
-
-AuditLog         // actor, entity, field, before, after, timestamp
-```
-
-Identity itself stays in Identity Platform (ADR 0004); `User` is a thin local mirror
-keyed by the Identity Platform UID. Prisma does not manage the IdP.
+See [ADR 0005](0005-fighter-applications.md). `Fighter` is public roster only; applicants
+live on `FighterApplication` until accept.
 
 ## Consequences
 
@@ -121,7 +97,7 @@ keyed by the Identity Platform UID. Prisma does not manage the IdP.
   profile must be checked per field, not just "is this your record." This belongs in the
   service layer with the permission map as data, not scattered `if` statements.
 - Two-table split means profile reads/writes touch both — slightly more code.
-- Claim links are credentials: single-use, expiring, and must be revocable.
+- Admins must work the application queue or applicants wait (ADR 0005).
 - **PII raises the compliance bar.** India's DPDP Act applies to this kind of collection —
   consent capture, purpose limitation, deletion rights. Storing scanned ID documents or
   medical certificates is a materially higher bar than storing a bio and should be

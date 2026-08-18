@@ -1,15 +1,11 @@
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { prisma } from "./db/prisma.js";
+import { registerApplicationRoutes } from "./routes/applications.js";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter });
 const app = Fastify({ logger: true });
 
-// Allowlist from env. `origin: true` (reflect any origin) is fine locally but must
-// never reach production — see docs/system-design.md §12.
 const allowedOrigins = process.env.CORS_ORIGINS?.split(",").map((o) => o.trim()).filter(Boolean);
 
 if (process.env.NODE_ENV === "production" && !allowedOrigins?.length) {
@@ -18,12 +14,41 @@ if (process.env.NODE_ENV === "production" && !allowedOrigins?.length) {
 
 await app.register(cors, {
   origin: allowedOrigins?.length ? allowedOrigins : true,
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: ["Authorization", "Content-Type"],
 });
+
+const publicFighterSelect = {
+  id: true,
+  slug: true,
+  firstName: true,
+  lastName: true,
+  nickname: true,
+  dob: true,
+  weightClass: true,
+  heightCm: true,
+  reachCm: true,
+  priorWins: true,
+  priorLosses: true,
+  priorDraws: true,
+  wins: true,
+  losses: true,
+  draws: true,
+  bio: true,
+  gym: true,
+  hometown: true,
+  instagram: true,
+  photoKey: true,
+  photoUrl: true,
+} as const;
 
 app.get("/health", async () => ({ status: "ok" }));
 
 app.get("/fighters", async () => {
-  return prisma.fighter.findMany({ orderBy: { lastName: "asc" } });
+  return prisma.fighter.findMany({
+    orderBy: { lastName: "asc" },
+    select: publicFighterSelect,
+  });
 });
 
 app.get("/events", async () => {
@@ -38,6 +63,8 @@ app.get("/rankings/:weightClass", async (req) => {
     include: { fighter: true },
   });
 });
+
+await registerApplicationRoutes(app);
 
 const port = Number(process.env.PORT) || 4000;
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {

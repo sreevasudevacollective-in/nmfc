@@ -8,15 +8,28 @@ export type WeightClass =
   | "LIGHT_HEAVYWEIGHT"
   | "HEAVYWEIGHT";
 
+export type ApplicationStatus = "PENDING_REVIEW" | "REJECTED" | "ACCEPTED" | "WITHDRAWN";
+
 export interface Fighter {
   id: string;
+  slug: string;
   firstName: string;
   lastName: string;
   nickname?: string | null;
   weightClass?: WeightClass | null;
+  heightCm?: number | null;
+  reachCm?: number | null;
+  priorWins: number;
+  priorLosses: number;
+  priorDraws: number;
   wins: number;
   losses: number;
   draws: number;
+  bio?: string | null;
+  gym?: string | null;
+  hometown?: string | null;
+  instagram?: string | null;
+  photoKey?: string | null;
   photoUrl?: string | null;
 }
 

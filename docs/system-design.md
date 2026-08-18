@@ -15,8 +15,8 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - Rankings — per weight class
 - **Admin dashboard** (web) — create and manage the roster, events, results, rankings
 - **Accounts** — sign-up via email and Google ([ADR 0004](decisions/0004-hybrid-platform.md))
-- **Fighter self-service** — fighters claim an admin-created record and maintain their own
-  profile fields ([ADR 0003](decisions/0003-fighter-accounts.md))
+- **Fighter self-service** — open apply, admin review/accept ([ADR 0005](decisions/0005-fighter-applications.md));
+  accepted fighters maintain fighter-owned fields ([ADR 0003](decisions/0003-fighter-accounts.md))
 
 **Explicitly out of v1**
 - Phone / SMS OTP login — deferred; requires TRAI DLT registration in India
