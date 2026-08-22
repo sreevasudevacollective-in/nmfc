@@ -40,7 +40,7 @@ The seed is idempotent — re-running it updates in place rather than duplicatin
 ## Run locally
 
 ```bash
-npm run dev:web       # Next.js on http://localhost:3001
+npm run dev:web       # Next.js on http://localhost:3000
 npm run dev:api       # Fastify on http://localhost:4000
 npm run dev:mobile    # Expo dev server (scan QR with Expo Go)
 ```
