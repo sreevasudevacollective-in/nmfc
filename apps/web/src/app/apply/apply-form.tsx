@@ -5,6 +5,8 @@ import type { User } from "firebase/auth";
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+type League = { id: string; slug: string; name: string; discipline: string | null };
+
 const STEPS = ["Identity", "Fighting", "Profile", "Contact"] as const;
 
 const weightClasses = [
@@ -29,6 +31,7 @@ type Draft = {
   lastName: string;
   nickname: string;
   dob: string;
+  leagueId: string;
   weightClass: string;
   heightCm: string | number;
   reachCm: string | number;
@@ -47,6 +50,7 @@ const emptyDraft: Draft = {
   lastName: "",
   nickname: "",
   dob: "",
+  leagueId: "",
   weightClass: "",
   heightCm: "",
   reachCm: "",
@@ -107,11 +111,24 @@ function formToPayload(form: HTMLFormElement, step: number) {
 
 export function ApplyForm({ user }: { user: User }) {
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [leagues, setLeagues] = useState<League[]>([]);
   const [step, setStep] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/v1/leagues?kind=HOME`);
+        if (res.ok) setLeagues((await res.json()) as League[]);
+      } catch {
+        // Non-fatal: the select just renders empty and submit will reject with
+        // "Select a league to apply to." rather than silently defaulting one in.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -240,6 +257,20 @@ export function ApplyForm({ user }: { user: User }) {
 
       {step === 2 ? (
         <>
+          <label className="block text-sm">
+            <span className="text-muted">League *</span>
+            <select className={fieldClass} name="leagueId" required defaultValue={draft.leagueId}>
+              <option value="" disabled>
+                Select a league
+              </option>
+              {leagues.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                  {l.discipline ? ` — ${l.discipline}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="block text-sm">
             <span className="text-muted">Weight class</span>
             <select className={fieldClass} name="weightClass" defaultValue={draft.weightClass}>

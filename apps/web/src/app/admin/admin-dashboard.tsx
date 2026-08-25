@@ -15,6 +15,7 @@ type Application = {
   nickname: string;
   weightClass: string;
   reviewNotes: string;
+  league: { slug: string; name: string } | null;
 };
 
 async function authHeaders(user: User) {
@@ -63,7 +64,15 @@ function ApplicationRow({
         </p>
         <p className="text-sm text-muted">{application.weightClass || "No weight class"}</p>
       </div>
-      <p className="mt-1 text-sm text-muted">{application.email}</p>
+      <p className="mt-1 text-sm text-muted">
+        {application.email}
+        {" · "}
+        {application.league ? (
+          application.league.name
+        ) : (
+          <span className="text-red-400">no league on file — pre-dates the league field</span>
+        )}
+      </p>
 
       <input
         className="mt-3 w-full rounded-sm border border-line bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
