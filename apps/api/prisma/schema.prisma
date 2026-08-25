@@ -122,9 +122,10 @@ model League {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  events   Event[]
-  rankings Ranking[]
-  fighters FighterLeague[]
+  events       Event[]
+  rankings     Ranking[]
+  fighters     FighterLeague[]
+  applications FighterApplication[]
 
   @@index([kind])
 }
@@ -170,6 +171,11 @@ model FighterApplication {
   reviewNotes    String?
   fighterId      String?           @unique
   fighter        Fighter?          @relation(fields: [fighterId], references: [id])
+  /// Which home league the applicant is trying out for. Nullable because rows
+  /// created before this field existed have none — see ADR 0006's Revisit note.
+  /// Required by the API at submit time for every application going forward.
+  leagueId       String?
+  league         League?           @relation(fields: [leagueId], references: [id])
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 

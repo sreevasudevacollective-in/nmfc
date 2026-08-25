@@ -18,7 +18,7 @@ const apiBase = process.env.API_URL ?? "http://localhost:4000";
 
 async function loadFighters(): Promise<PublicFighter[]> {
   try {
-    const res = await fetch(`${apiBase}/fighters`, { next: { revalidate: 60 } });
+    const res = await fetch(`${apiBase}/v1/fighters`, { next: { revalidate: 60 } });
     if (!res.ok) return [];
     return (await res.json()) as PublicFighter[];
   } catch {

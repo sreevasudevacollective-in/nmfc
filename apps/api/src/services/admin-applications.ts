@@ -21,6 +21,7 @@ export async function listApplications(status?: string) {
   const rows = await prisma.fighterApplication.findMany({
     where,
     orderBy: { updatedAt: "desc" },
+    include: { league: { select: { slug: true, name: true } } },
   });
 
   return rows.map((row) => ({
@@ -28,6 +29,7 @@ export async function listApplications(status?: string) {
     reviewedAt: row.reviewedAt?.toISOString() ?? null,
     reviewNotes: row.reviewNotes ?? "",
     fighterId: row.fighterId,
+    league: row.league ? { slug: row.league.slug, name: row.league.name } : null,
   }));
 }
 
@@ -42,11 +44,12 @@ async function uniqueSlug(firstName: string, lastName: string) {
   return slug;
 }
 
-// Every accepted fighter is affiliated with the flagship home league. The
-// application form doesn't yet ask which league (Fighting Championship / Hand to
-// Hand / Slap Wars) an applicant is trying out for, so there is no signal to place
-// them elsewhere. Revisit once intake captures that choice.
-const DEFAULT_LEAGUE_SLUG = "no-mercy-fighting-championship";
+// Fallback for the handful of applications that were submitted before the application
+// form asked which league an applicant wanted (see ADR 0006's Revisit note). Every
+// application submitted from here on has a real leagueId, enforced in
+// services/applications.ts#submitApplication — this only fires for that pre-existing
+// data, not the normal path.
+const LEGACY_DEFAULT_LEAGUE_SLUG = "no-mercy-fighting-championship";
 
 export async function acceptApplication(auth: AuthUser, applicationId: string) {
   const reviewer = await ensureUser(auth);
@@ -66,9 +69,11 @@ export async function acceptApplication(auth: AuthUser, applicationId: string) {
     return { ok: false as const, statusCode: 400 as const, error: "Application is missing a name." };
   }
 
-  const league = await prisma.league.findUnique({ where: { slug: DEFAULT_LEAGUE_SLUG } });
+  const league = application.leagueId
+    ? await prisma.league.findUnique({ where: { id: application.leagueId } })
+    : await prisma.league.findUnique({ where: { slug: LEGACY_DEFAULT_LEAGUE_SLUG } });
   if (!league) {
-    return { ok: false as const, statusCode: 500 as const, error: "Default league is not seeded." };
+    return { ok: false as const, statusCode: 500 as const, error: "Application's league could not be resolved." };
   }
 
   const slug = await uniqueSlug(application.firstName, application.lastName);

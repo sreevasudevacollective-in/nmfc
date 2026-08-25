@@ -14,6 +14,7 @@ export function toApplicationJson(row: FighterApplication) {
     lastName: row.lastName ?? "",
     nickname: row.nickname ?? "",
     dob: row.dob ? row.dob.toISOString().slice(0, 10) : "",
+    leagueId: row.leagueId ?? "",
     weightClass: row.weightClass ?? "",
     heightCm: row.heightCm ?? "",
     reachCm: row.reachCm ?? "",
@@ -63,6 +64,7 @@ export async function saveDraft(auth: AuthUser, body: ApplicationDraftBody) {
     lastName: body.lastName,
     nickname: body.nickname,
     dob: body.dob ? new Date(body.dob) : undefined,
+    leagueId: body.leagueId,
     weightClass: body.weightClass,
     heightCm: body.heightCm,
     reachCm: body.reachCm,
@@ -94,6 +96,14 @@ export async function submitApplication(auth: AuthUser, body: ApplicationDraftBo
 
   if (!saved.application.firstName?.trim() || !saved.application.lastName?.trim()) {
     return { ok: false as const, statusCode: 400 as const, error: "First and last name are required to submit." };
+  }
+
+  if (!saved.application.leagueId) {
+    return { ok: false as const, statusCode: 400 as const, error: "Select a league to apply to." };
+  }
+  const league = await prisma.league.findUnique({ where: { id: saved.application.leagueId } });
+  if (!league || league.kind !== "HOME") {
+    return { ok: false as const, statusCode: 400 as const, error: "Select a valid league to apply to." };
   }
 
   const user = await ensureUser(auth);

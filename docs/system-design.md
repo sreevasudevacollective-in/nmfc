@@ -182,36 +182,33 @@ cleanly separated.
 REST over HTTPS, JSON. Versioned under `/v1` from day one — cheap now, and mobile clients
 in the wild can't be force-upgraded later.
 
-> **As built, the versioning is inconsistent** — worth fixing before it calcifies further,
-> not worth a doc rewrite to hide. Public reads (`/fighters`, `/events`, `/rankings/:weightClass`,
-> `/leagues`, `/products`) shipped unversioned; only the applicant and admin surfaces below
-> landed under `/v1`. The subsections below separate "originally proposed, not yet built"
-> from "actually shipped."
+> **Resolved 2026-08-25:** public reads were unversioned for a while — this note used to
+> flag that as a real inconsistency, not a rewrite target. They now live under `/v1` like
+> everything else. `/health` deliberately stays bare: it's an infra probe, not a data
+> contract mobile clients depend on.
 
-### Public (unauthenticated, read-only) — proposed
+### Public (unauthenticated, read-only) — proposed vs. shipped
 
-```
-GET  /v1/fighters?weightClass=&q=&page=      list + search
-GET  /v1/fighters/:slug                       profile + fight history
-GET  /v1/events?status=&page=                 list
-GET  /v1/events/:slug                         event + full card, bouts ordered
-GET  /v1/rankings                             all weight classes
-GET  /v1/rankings/:weightClass                one division
-```
-
-### Public (unauthenticated, read-only) — actually shipped
-
-No versioning, no slug lookups yet (list-only), no pagination — all still open items from
-the proposal above.
+Versioning now matches the proposal below; the route *shapes* still don't. No slug lookups
+yet (list-only), no pagination, no search — all still open.
 
 ```
-GET  /health
-GET  /fighters?league=                 list, optionally filtered by league slug
-GET  /events?league=                   list, includes fights and league
-GET  /rankings/:weightClass?league=    optionally filtered by league slug
-GET  /leagues                          home + partnered
-GET  /products                         merch catalog, isAvailable only
-POST /sponsor-inquiries                public write — no auth, informational only (ADR 0006)
+GET  /v1/fighters?weightClass=&q=&page=      list + search               ← proposed
+GET  /v1/fighters/:slug                       profile + fight history     ← proposed
+GET  /v1/events?status=&page=                 list                       ← proposed
+GET  /v1/events/:slug                         event + full card          ← proposed
+GET  /v1/rankings                             all weight classes         ← proposed
+GET  /v1/rankings/:weightClass                one division               ← proposed
+```
+
+```
+GET  /health                                                             ← shipped, bare on purpose
+GET  /v1/fighters?league=                 list, filterable by league slug   ← shipped
+GET  /v1/events?league=                   list, includes fights and league ← shipped
+GET  /v1/rankings/:weightClass?league=    filterable by league slug         ← shipped
+GET  /v1/leagues?kind=                    home + partnered, filterable      ← shipped
+GET  /v1/products                         merch catalog, isAvailable only   ← shipped
+POST /v1/sponsor-inquiries                public write — no auth (ADR 0006) ← shipped
 ```
 
 ### Applicant (JWT required, any signed-in user) — shipped
@@ -221,6 +218,10 @@ GET  /v1/applications/me
 PUT  /v1/applications/me                save a draft
 POST /v1/applications/me/submit         DRAFT → PENDING_REVIEW
 ```
+
+`submit` requires `leagueId` naming a real `HOME` league (400 otherwise) — the applicant
+picks from `GET /v1/leagues?kind=HOME`. `PARTNERED` leagues are rejected; you can't apply
+to a directory entry.
 
 ### Admin (JWT required, admin role — see [ADR 0007](decisions/0007-admin-role.md)) — shipped
 
@@ -532,12 +533,12 @@ solo.
 | 3 | Rankings: manual vs computed (§6) | Manual for v1 |
 | 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | Confirm; also whether women's divisions are needed |
 | 5 | Is there existing fighter/event data to import? | Affects Phase 1 |
-| 6 | Which home league is an applicant applying to? (ADR 0006) | Add a league field to the application form; until then every acceptance defaults to the flagship league and needs manual reassignment for Hand to Hand / Slap Wars |
 
 Items 4 and 5 are the ones I can't answer from the code — they're facts about how NMFC
-actually operates. Item 6 is answerable from the code, just not yet acted on.
+actually operates.
 
 **Settled:** cloud platform, database engine, image storage, and hybrid auth — see
 [ADR 0001](decisions/0001-cloud-platform.md) and
 [ADR 0004](decisions/0004-hybrid-platform.md). Leagues and the admin-role mechanism — see
-[ADR 0006](decisions/0006-leagues.md) and [ADR 0007](decisions/0007-admin-role.md).
+[ADR 0006](decisions/0006-leagues.md) and [ADR 0007](decisions/0007-admin-role.md). Which
+league an applicant applies to — the form now collects it, see ADR 0006.

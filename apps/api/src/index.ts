@@ -57,7 +57,11 @@ const publicLeagueSelect = {
   websiteUrl: true,
 } as const;
 
-app.get("/fighters", async (req) => {
+// Versioned like the applicant/admin routes below — mobile clients in the wild can't be
+// force-upgraded. These used to be unversioned; moved under /v1 to fix that inconsistency.
+// /health stays bare: it's an infra probe, not a data contract.
+
+app.get("/v1/fighters", async (req) => {
   const { league } = req.query as { league?: string };
   return prisma.fighter.findMany({
     where: league ? { leagues: { some: { league: { slug: league } } } } : undefined,
@@ -69,14 +73,16 @@ app.get("/fighters", async (req) => {
   });
 });
 
-app.get("/leagues", async () => {
+app.get("/v1/leagues", async (req) => {
+  const { kind } = req.query as { kind?: string };
   return prisma.league.findMany({
+    where: kind ? { kind: kind as never } : undefined,
     orderBy: [{ kind: "asc" }, { displayOrder: "asc" }],
     select: publicLeagueSelect,
   });
 });
 
-app.get("/events", async (req) => {
+app.get("/v1/events", async (req) => {
   const { league } = req.query as { league?: string };
   return prisma.event.findMany({
     where: league ? { league: { slug: league } } : undefined,
@@ -85,7 +91,7 @@ app.get("/events", async (req) => {
   });
 });
 
-app.get("/rankings/:weightClass", async (req) => {
+app.get("/v1/rankings/:weightClass", async (req) => {
   const { weightClass } = req.params as { weightClass: string };
   const { league } = req.query as { league?: string };
   return prisma.ranking.findMany({
@@ -98,14 +104,14 @@ app.get("/rankings/:weightClass", async (req) => {
   });
 });
 
-app.get("/products", async () => {
+app.get("/v1/products", async () => {
   return prisma.product.findMany({
     where: { isAvailable: true },
     orderBy: [{ category: "asc" }, { displayOrder: "asc" }],
   });
 });
 
-app.post("/sponsor-inquiries", async (req, reply) => {
+app.post("/v1/sponsor-inquiries", async (req, reply) => {
   const parsed = sponsorInquiryBody.safeParse(req.body);
   if (!parsed.success) {
     return reply.code(400).send({ error: "Invalid inquiry", details: parsed.error.flatten() });

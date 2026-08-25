@@ -64,21 +64,22 @@ workflow state beyond "it exists."
 - Partnered leagues can be listed without building anything to track their data
 
 ### Negative / to manage
-- **The fighter application form doesn't ask which league an applicant is trying out for.**
-  `acceptApplication` defaults every accepted fighter onto the flagship league (No Mercy
-  Fighting Championship). A Hand to Hand or Slap Wars applicant is accepted into the wrong
-  league and needs manual `FighterLeague` reassignment after acceptance. This is the
-  concrete cost of not revisiting ADR 0005's intake flow yet — see Revisit below.
 - No per-league weight-class taxonomy. If Slap Wars or Hand to Hand need their own divisions
   (not just "no divisions"), this becomes a real schema change, not a config tweak.
 - Sponsor inquiries and merchandise have no operational workflow — an admin monitors the
   `SponsorInquiry` table and the `Product` catalog by hand. Fine at current volume; revisit
   if either grows past what one person can track manually.
 
+> **Resolved 2026-08-25:** the application form now collects `leagueId` and submit rejects
+> applications with none, or with one naming a `PARTNERED` league. `acceptApplication` places
+> the fighter in the league they actually applied to. The flagship-default fallback still
+> exists, but only fires for the handful of applications submitted before this field existed
+> (`leagueId IS NULL`) — it is no longer the normal path. Verified: an application submitted
+> against Hand to Hand produces a fighter affiliated with Hand to Hand, not the flagship
+> league; a legacy `leagueId`-null row still falls back correctly.
+
 ## Revisit if
 
-- The application form should collect a league choice at intake — this is the direct fix for
-  the "Negative" item above, and is the natural next step now that `League` exists.
 - A home league needs its own weight-class list distinct from the MMA-style eight already
   in `WeightClass`.
 - Sponsor inquiries or merchandise need real workflow (tier tracking, checkout) rather than

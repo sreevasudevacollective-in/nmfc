@@ -73,27 +73,30 @@ npm run dev:mobile    # Expo dev server (scan QR with Expo Go)
 
 ## API endpoints
 
-Public, unversioned:
+All under `/v1` except `/health`, which is an infra probe rather than a data contract.
+(Public reads were unversioned until this was fixed — if you have an old bookmark or
+integration hitting bare `/fighters` etc., it now 404s.)
+
+Public:
 
 - `GET /health`
-- `GET /fighters?league=` — optionally filtered by league slug
-- `GET /events?league=` (includes fights and league)
-- `GET /rankings/:weightClass?league=` (e.g. `LIGHTWEIGHT`)
-- `GET /leagues` — home leagues + partnered directory
-- `GET /products` — merch catalog
-- `POST /sponsor-inquiries` — public write, no auth (contact form, not a CRM)
+- `GET /v1/fighters?league=` — optionally filtered by league slug
+- `GET /v1/events?league=` (includes fights and league)
+- `GET /v1/rankings/:weightClass?league=` (e.g. `LIGHTWEIGHT`)
+- `GET /v1/leagues?kind=` — home leagues + partnered directory, optionally filtered to `HOME` or `PARTNERED`
+- `GET /v1/products` — merch catalog
+- `POST /v1/sponsor-inquiries` — public write, no auth (contact form, not a CRM)
 
 Applicant, requires a signed-in Identity Platform JWT:
 
-- `GET/PUT /v1/applications/me`, `POST /v1/applications/me/submit`
+- `GET/PUT /v1/applications/me`, `POST /v1/applications/me/submit` — submit now requires a
+  `leagueId` naming a real `HOME` league; the form fetches `/v1/leagues?kind=HOME` to populate
+  the select
 
 Admin, requires `User.role = ADMIN` (see **Admin access** below):
 
 - `GET /v1/admin/applications?status=`, `POST /v1/admin/applications/:id/accept`,
   `POST /v1/admin/applications/:id/reject`
-
-Note the inconsistent versioning (`/v1/*` only on the auth-gated routes) — a known gap, not
-an intentional design; see [docs/system-design.md §4](docs/system-design.md).
 
 ## Admin access
 
@@ -124,15 +127,17 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 - [x] Fighter self-service application intake, admin review dashboard at `/admin`
       (ADR 0005) — `/apply` and `/admin` are both wired and working
 - [x] Leagues: three home leagues + partnered directory (ADR 0006)
-- [ ] **Add a league field to the application form.** Every accepted fighter currently
-      defaults onto the flagship league regardless of which one they applied to — see
-      ADR 0006's Revisit section
+- [x] **League field on the application form.** Submit now requires a `leagueId` naming a
+      real `HOME` league; acceptance places the fighter in the league they actually applied
+      to. The flagship-default fallback survives only for the handful of applications
+      submitted before this field existed (`leagueId` null) — see ADR 0006's Revisit note
+- [x] Fix API versioning inconsistency — all public reads moved under `/v1`; `/health`
+      stays bare deliberately (infra probe, not a data contract)
 - [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
 - [ ] Build admin CRUD for roster/event content (create/edit fighters, events, fight
       results, ranking reorder) — distinct from application review, which is done
-- [ ] Build public pages: fighter profile, event page, rankings page
+- [ ] Build public pages: fighter profile, event page, rankings page — a fighters *list*
+      exists at `/fighters`; profile, event, and rankings pages don't yet
 - [ ] Decide ranking method: manually set vs. auto-computed from win/loss
 - [ ] Fighter photo storage: local/public folder for now, or Supabase storage / S3-compatible bucket later
-- [ ] Fix API versioning inconsistency (`/v1/*` only on auth-gated routes — see API
-      endpoints above)
 - [ ] Deploy: web → Vercel, API → Fly Mumbai, DB + files → Supabase Mumbai, auth → Identity Platform (ADR 0004)

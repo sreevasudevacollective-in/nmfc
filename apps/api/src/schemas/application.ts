@@ -23,6 +23,9 @@ export const applicationDraftBody = z.object({
   lastName: optionalText(80),
   nickname: optionalText(80),
   dob: z.preprocess(emptyToUndefined, z.iso.date().optional()),
+  // Which league is validated in the service layer (must reference a real HOME league),
+  // not here — a format check alone can't tell "well-formed but wrong" from "valid".
+  leagueId: optionalText(40),
   weightClass: z.preprocess(emptyToUndefined, z.enum(weightClasses).optional()),
   heightCm: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().max(250).optional()),
   reachCm: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().max(250).optional()),
