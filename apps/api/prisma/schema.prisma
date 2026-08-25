@@ -30,6 +30,15 @@ enum ApplicationStatus {
   WITHDRAWN
 }
 
+enum LeagueKind {
+  /// Run and owned by NMFC — No Mercy Fighting Championship, No Mercy Hand to Hand,
+  /// No Mercy Slap Wars. Has its own events, rankings and roster.
+  HOME
+  /// A directory entry for another Indian promotion. No fighters, events or rankings
+  /// are tracked for these — name, description and a link out, nothing more.
+  PARTNERED
+}
+
 /// Local mirror of Identity Platform. Prisma does not store passwords.
 model User {
   id        String   @id @default(cuid())
@@ -72,13 +81,52 @@ model Fighter {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  fightsAsA    Fight[]              @relation("FighterA")
-  fightsAsB    Fight[]              @relation("FighterB")
-  rankings     Ranking[]
-  profile      FighterProfile?
-  application  FighterApplication?
+  fightsAsA   Fight[]             @relation("FighterA")
+  fightsAsB   Fight[]             @relation("FighterB")
+  rankings    Ranking[]
+  profile     FighterProfile?
+  application FighterApplication?
+  leagues     FighterLeague[]
 
   @@index([weightClass])
+}
+
+/// A fighter's affiliation with a home league. Many-to-many: a crossover fighter
+/// (e.g. competing in both No Mercy Fighting Championship and No Mercy Slap Wars)
+/// has one row per league, not one profile per league.
+model FighterLeague {
+  fighterId String
+  fighter   Fighter  @relation(fields: [fighterId], references: [id], onDelete: Cascade)
+  leagueId  String
+  league    League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@id([fighterId, leagueId])
+  @@index([leagueId])
+}
+
+/// A promotion: NMFC's own leagues (HOME) and other Indian promotions listed as
+/// partners (PARTNERED). Events and rankings belong to exactly one League.
+model League {
+  id           String     @id @default(cuid())
+  slug         String     @unique
+  name         String
+  kind         LeagueKind
+  /// Free text — "MMA", "Slap Fighting", "Grappling". Not an enum: home leagues run
+  /// different rulesets and partnered leagues run whatever they run.
+  discipline   String?
+  description  String?
+  logoKey      String?
+  websiteUrl   String?
+  displayOrder Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  events   Event[]
+  rankings Ranking[]
+  fighters FighterLeague[]
+
+  @@index([kind])
 }
 
 /// Private PII — never included in public fighter queries.
@@ -145,6 +193,8 @@ model AuditLog {
 
 model Event {
   id        String   @id @default(cuid())
+  league    League   @relation(fields: [leagueId], references: [id])
+  leagueId  String
   name      String
   date      DateTime
   venue     String?
@@ -153,6 +203,8 @@ model Event {
   updatedAt DateTime @updatedAt
 
   fights Fight[]
+
+  @@index([leagueId])
 }
 
 model Fight {
@@ -176,11 +228,49 @@ model Fight {
 
 model Ranking {
   id          String      @id @default(cuid())
+  league      League      @relation(fields: [leagueId], references: [id])
+  leagueId    String
   fighter     Fighter     @relation(fields: [fighterId], references: [id])
   fighterId   String
   weightClass WeightClass
   rank        Int
   updatedAt   DateTime    @updatedAt
 
-  @@unique([weightClass, rank])
+  // Rankings are per league, not global — the same weight class/rank pair is free
+  // to be reused in a different league.
+  @@unique([leagueId, weightClass, rank])
+  @@index([leagueId])
+}
+
+/// A sponsorship-interest submission from the public site. Informational only —
+/// no tier tracking or CRM workflow; an admin follows up manually.
+model SponsorInquiry {
+  id                String   @id @default(cuid())
+  name              String
+  organization      String?
+  email             String
+  phone             String?
+  message           String?
+  interestedPackage String?
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Merchandise catalog entry. Display and price only — no cart, checkout or
+/// inventory. Purchasing happens off-site.
+model Product {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  description  String?
+  priceInr     Int?
+  imageKey     String?
+  category     String?
+  isAvailable  Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
 }
