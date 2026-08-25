@@ -2,6 +2,7 @@ import type { FighterApplication } from "@prisma/client";
 import type { AuthUser } from "../auth/firebase.js";
 import type { ApplicationDraftBody } from "../schemas/application.js";
 import { prisma } from "../db/prisma.js";
+import { ensureUser } from "./users.js";
 
 export function toApplicationJson(row: FighterApplication) {
   return {
@@ -23,14 +24,6 @@ export function toApplicationJson(row: FighterApplication) {
     phone: row.phone ?? "",
     address: row.address ?? "",
   };
-}
-
-async function ensureUser(auth: AuthUser) {
-  return prisma.user.upsert({
-    where: { authUid: auth.uid },
-    create: { authUid: auth.uid, role: "USER" },
-    update: {},
-  });
 }
 
 export async function getMyApplication(auth: AuthUser) {

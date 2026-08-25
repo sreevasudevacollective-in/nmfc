@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { prisma } from "./db/prisma.js";
 import { registerApplicationRoutes } from "./routes/applications.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 import { sponsorInquiryBody } from "./schemas/sponsor-inquiry.js";
 
 const app = Fastify({ logger: true });
@@ -114,6 +115,7 @@ app.post("/sponsor-inquiries", async (req, reply) => {
 });
 
 await registerApplicationRoutes(app);
+await registerAdminRoutes(app);
 
 const port = Number(process.env.PORT) || 4000;
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {
