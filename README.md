@@ -73,14 +73,44 @@ npm run dev:mobile    # Expo dev server (scan QR with Expo Go)
 
 ## API endpoints
 
+Public, unversioned:
+
 - `GET /health`
-- `GET /fighters`
-- `GET /events` (includes fights)
-- `GET /rankings/:weightClass` (e.g. `LIGHTWEIGHT`)
+- `GET /fighters?league=` — optionally filtered by league slug
+- `GET /events?league=` (includes fights and league)
+- `GET /rankings/:weightClass?league=` (e.g. `LIGHTWEIGHT`)
+- `GET /leagues` — home leagues + partnered directory
+- `GET /products` — merch catalog
+- `POST /sponsor-inquiries` — public write, no auth (contact form, not a CRM)
+
+Applicant, requires a signed-in Identity Platform JWT:
+
+- `GET/PUT /v1/applications/me`, `POST /v1/applications/me/submit`
+
+Admin, requires `User.role = ADMIN` (see **Admin access** below):
+
+- `GET /v1/admin/applications?status=`, `POST /v1/admin/applications/:id/accept`,
+  `POST /v1/admin/applications/:id/reject`
+
+Note the inconsistent versioning (`/v1/*` only on the auth-gated routes) — a known gap, not
+an intentional design; see [docs/system-design.md §4](docs/system-design.md).
+
+## Admin access
+
+There's no signup flow that grants `ADMIN` — it has to be bootstrapped. Set `ADMIN_EMAILS`
+(comma-separated) in `apps/api/.env`; whoever signs in with a listed email is promoted to
+`ADMIN` on that sign-in. Promote-only — removing an email later doesn't demote an existing
+admin. Details: [ADR 0007](docs/decisions/0007-admin-role.md).
+
+Dashboard: `/admin` on the web app. Lists applications pending review with accept/reject.
 
 ## Data model
 
-`Fighter`, `Event`, `Fight`, `Ranking` — see `apps/api/prisma/schema.prisma`.
+`Fighter`, `Event`, `Fight`, `Ranking` (roster and cards); `User`, `FighterApplication`,
+`FighterProfile`, `AuditLog` (accounts and intake — [ADR 0003](docs/decisions/0003-fighter-accounts.md),
+[ADR 0005](docs/decisions/0005-fighter-applications.md)); `League`, `FighterLeague` (home
+leagues + partnered directory — [ADR 0006](docs/decisions/0006-leagues.md)); `SponsorInquiry`,
+`Product` (thin content models, no workflow). See `apps/api/prisma/schema.prisma`.
 
 Prisma 7 keeps the connection URL in `apps/api/prisma.config.ts` (not the schema), and the
 runtime client requires the `@prisma/adapter-pg` driver adapter.
@@ -89,11 +119,20 @@ runtime client requires the `@prisma/adapter-pg` driver adapter.
 
 - [x] Provision Postgres and set `DATABASE_URL` in `apps/api/.env`
 - [x] Run initial Prisma migration
+- [x] Public accounts + admin auth: Identity Platform, `requireAdmin`, `ADMIN_EMAILS`
+      bootstrap (ADR 0004, ADR 0007) — superseded the earlier "simple password gate" plan
+- [x] Fighter self-service application intake, admin review dashboard at `/admin`
+      (ADR 0005) — `/apply` and `/admin` are both wired and working
+- [x] Leagues: three home leagues + partnered directory (ADR 0006)
+- [ ] **Add a league field to the application form.** Every accepted fighter currently
+      defaults onto the flagship league regardless of which one they applied to — see
+      ADR 0006's Revisit section
 - [ ] Run and verify the mobile app in Expo Go / simulator (scaffolded but not yet launched)
-- [ ] Connect web frontend to the API (currently still the Next.js starter page)
-- [ ] Build admin CRUD (create/edit fighters, events, fight results)
+- [ ] Build admin CRUD for roster/event content (create/edit fighters, events, fight
+      results, ranking reorder) — distinct from application review, which is done
 - [ ] Build public pages: fighter profile, event page, rankings page
 - [ ] Decide ranking method: manually set vs. auto-computed from win/loss
 - [ ] Fighter photo storage: local/public folder for now, or Supabase storage / S3-compatible bucket later
-- [ ] Admin auth (simple password gate to start; no public user accounts in v1)
+- [ ] Fix API versioning inconsistency (`/v1/*` only on auth-gated routes — see API
+      endpoints above)
 - [ ] Deploy: web → Vercel, API → Fly Mumbai, DB + files → Supabase Mumbai, auth → Identity Platform (ADR 0004)

@@ -17,8 +17,46 @@ enum WeightClass {
   HEAVYWEIGHT
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum ApplicationStatus {
+  DRAFT
+  PENDING_REVIEW
+  REJECTED
+  ACCEPTED
+  WITHDRAWN
+}
+
+enum LeagueKind {
+  /// Run and owned by NMFC — No Mercy Fighting Championship, No Mercy Hand to Hand,
+  /// No Mercy Slap Wars. Has its own events, rankings and roster.
+  HOME
+  /// A directory entry for another Indian promotion. No fighters, events or rankings
+  /// are tracked for these — name, description and a link out, nothing more.
+  PARTNERED
+}
+
+/// Local mirror of Identity Platform. Prisma does not store passwords.
+model User {
+  id        String   @id @default(cuid())
+  authUid   String   @unique
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fighter      Fighter?
+  applications FighterApplication[]
+  reviews      FighterApplication[] @relation("ApplicationReviewer")
+  audits       AuditLog[]
+}
+
+/// Public roster only. Created when an admin accepts an application.
 model Fighter {
-  id          String      @id @default(cuid())
+  id          String       @id @default(cuid())
+  slug        String       @unique
   firstName   String
   lastName    String
   nickname    String?
@@ -26,21 +64,137 @@ model Fighter {
   weightClass WeightClass?
   heightCm    Int?
   reachCm     Int?
-  wins        Int         @default(0)
-  losses      Int         @default(0)
-  draws       Int         @default(0)
+  priorWins   Int          @default(0)
+  priorLosses Int          @default(0)
+  priorDraws  Int          @default(0)
+  wins        Int          @default(0)
+  losses      Int          @default(0)
+  draws       Int          @default(0)
   bio         String?
+  gym         String?
+  hometown    String?
+  instagram   String?
+  photoKey    String?
   photoUrl    String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  userId      String?      @unique
+  user        User?        @relation(fields: [userId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  fightsAsA Fight[] @relation("FighterA")
-  fightsAsB Fight[] @relation("FighterB")
-  rankings  Ranking[]
+  fightsAsA   Fight[]             @relation("FighterA")
+  fightsAsB   Fight[]             @relation("FighterB")
+  rankings    Ranking[]
+  profile     FighterProfile?
+  application FighterApplication?
+  leagues     FighterLeague[]
+
+  @@index([weightClass])
+}
+
+/// A fighter's affiliation with a home league. Many-to-many: a crossover fighter
+/// (e.g. competing in both No Mercy Fighting Championship and No Mercy Slap Wars)
+/// has one row per league, not one profile per league.
+model FighterLeague {
+  fighterId String
+  fighter   Fighter  @relation(fields: [fighterId], references: [id], onDelete: Cascade)
+  leagueId  String
+  league    League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@id([fighterId, leagueId])
+  @@index([leagueId])
+}
+
+/// A promotion: NMFC's own leagues (HOME) and other Indian promotions listed as
+/// partners (PARTNERED). Events and rankings belong to exactly one League.
+model League {
+  id           String     @id @default(cuid())
+  slug         String     @unique
+  name         String
+  kind         LeagueKind
+  /// Free text — "MMA", "Slap Fighting", "Grappling". Not an enum: home leagues run
+  /// different rulesets and partnered leagues run whatever they run.
+  discipline   String?
+  description  String?
+  logoKey      String?
+  websiteUrl   String?
+  displayOrder Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  events   Event[]
+  rankings Ranking[]
+  fighters FighterLeague[]
+
+  @@index([kind])
+}
+
+/// Private PII — never included in public fighter queries.
+model FighterProfile {
+  id             String   @id @default(cuid())
+  fighterId      String   @unique
+  fighter        Fighter  @relation(fields: [fighterId], references: [id], onDelete: Cascade)
+  phone          String?
+  address        String?
+  emergencyName  String?
+  emergencyPhone String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+/// Applicant intake. Not public until ACCEPTED (then a Fighter row exists).
+model FighterApplication {
+  id             String            @id @default(cuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         ApplicationStatus @default(DRAFT)
+  draftStep      Int               @default(1)
+  firstName      String?
+  lastName       String?
+  nickname       String?
+  dob            DateTime?
+  weightClass    WeightClass?
+  heightCm       Int?
+  reachCm        Int?
+  gym            String?
+  hometown       String?
+  instagram      String?
+  bio            String?
+  photoKey       String?
+  email          String
+  phone          String?
+  address        String?
+  reviewerUserId String?
+  reviewer       User?             @relation("ApplicationReviewer", fields: [reviewerUserId], references: [id])
+  reviewedAt     DateTime?
+  reviewNotes    String?
+  fighterId      String?           @unique
+  fighter        Fighter?          @relation(fields: [fighterId], references: [id])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+  entityType  String
+  entityId    String
+  field       String
+  before      String?
+  after       String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
 }
 
 model Event {
   id        String   @id @default(cuid())
+  league    League   @relation(fields: [leagueId], references: [id])
+  leagueId  String
   name      String
   date      DateTime
   venue     String?
@@ -49,6 +203,8 @@ model Event {
   updatedAt DateTime @updatedAt
 
   fights Fight[]
+
+  @@index([leagueId])
 }
 
 model Fight {
@@ -66,15 +222,55 @@ model Fight {
   time        String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+
+  @@index([eventId])
 }
 
 model Ranking {
   id          String      @id @default(cuid())
+  league      League      @relation(fields: [leagueId], references: [id])
+  leagueId    String
   fighter     Fighter     @relation(fields: [fighterId], references: [id])
   fighterId   String
   weightClass WeightClass
   rank        Int
   updatedAt   DateTime    @updatedAt
 
-  @@unique([weightClass, rank])
+  // Rankings are per league, not global — the same weight class/rank pair is free
+  // to be reused in a different league.
+  @@unique([leagueId, weightClass, rank])
+  @@index([leagueId])
+}
+
+/// A sponsorship-interest submission from the public site. Informational only —
+/// no tier tracking or CRM workflow; an admin follows up manually.
+model SponsorInquiry {
+  id                String   @id @default(cuid())
+  name              String
+  organization      String?
+  email             String
+  phone             String?
+  message           String?
+  interestedPackage String?
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Merchandise catalog entry. Display and price only — no cart, checkout or
+/// inventory. Purchasing happens off-site.
+model Product {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  description  String?
+  priceInr     Int?
+  imageKey     String?
+  category     String?
+  isAvailable  Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
 }
