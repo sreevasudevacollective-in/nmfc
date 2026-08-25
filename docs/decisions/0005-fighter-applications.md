@@ -1,6 +1,7 @@
 # ADR 0005 — Open fighter applications, admin accept
 
-**Status:** Accepted
+**Status:** Accepted (§ on leagues amended by [ADR 0006](0006-leagues.md); admin mechanism
+detailed in [ADR 0007](0007-admin-role.md))
 **Date:** 2026-08-17
 **Supersedes:** closed roster / claim-link in [ADR 0003](0003-fighter-accounts.md) §1
 **Keeps:** field ownership, private `FighterProfile`, audit log (ADR 0003 §2–4)
@@ -33,7 +34,11 @@ Anyone signs up (Identity Platform — email or Google)
 | Record / rankings | Still **not** applicant- or fighter-writable (ADR 0003). |
 | After accept | Fighter-owned fields as in ADR 0003; edits audited. |
 
-Leagues (IFL, IPBL, NMFC) stay out of this slice.
+> **Leagues shipped in [ADR 0006](0006-leagues.md).** This intake flow was not updated to
+> match: the application form still doesn't ask which league an applicant is trying out
+> for, so `acceptApplication` defaults every accepted fighter onto the flagship league (No
+> Mercy Fighting Championship) regardless of intent. A Hand to Hand or Slap Wars applicant
+> needs manual reassignment after acceptance today. See ADR 0006's Revisit section.
 
 ## Model
 
@@ -64,4 +69,5 @@ Fighter              // public roster only
 ## Revisit if
 
 - Applications should create a hidden `Fighter` row instead of a separate table.
-- Fighters may apply per league when leagues ship.
+- ~~Fighters may apply per league when leagues ship.~~ Leagues shipped (ADR 0006); this
+  fired and is now the open item at the top of this doc — the form needs a league field.

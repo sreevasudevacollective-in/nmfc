@@ -17,13 +17,16 @@ Status: proposed. Sections marked **Decision** need your sign-off before impleme
 - **Accounts** — sign-up via email and Google ([ADR 0004](decisions/0004-hybrid-platform.md))
 - **Fighter self-service** — open apply, admin review/accept ([ADR 0005](decisions/0005-fighter-applications.md));
   accepted fighters maintain fighter-owned fields ([ADR 0003](decisions/0003-fighter-accounts.md))
+- **Leagues** — three home leagues (own events, rankings, roster) plus a directory of
+  partnered promotions ([ADR 0006](decisions/0006-leagues.md))
 
 **Explicitly out of v1**
 - Phone / SMS OTP login — deferred; requires TRAI DLT registration in India
 - Predictions, comments, forums
 - Live/round-by-round scoring
-- Ticketing or payments
-- Multi-promotion data (NMFC only)
+- Ticketing, payments, or a merchandise checkout — the apparel catalog is display-only
+  (ADR 0006); a sponsor CRM — the sponsorship page is a contact form, not a tier tracker
+- Per-league weight-class taxonomies — one shared `WeightClass` enum for now (ADR 0006)
 
 > **Open:** accounts exist, but no logged-in features are yet defined. What sign-up unlocks
 > needs settling before the `User` profile model is built — see ADR 0002.
@@ -91,6 +94,16 @@ Route handlers should not touch Prisma directly. Result recording in particular
 Fighter accounts add `User`, `FighterProfile` (private PII, deliberately a separate table)
 and `AuditLog`. Their shape and the field-ownership rules are in
 **[ADR 0003](decisions/0003-fighter-accounts.md)** — read it before touching `Fighter`.
+
+Applications (`FighterApplication`), leagues (`League`, `FighterLeague`), and the two thin
+content models (`SponsorInquiry`, `Product`) have all shipped since this section was
+written — see [ADR 0005](decisions/0005-fighter-applications.md) and
+[ADR 0006](decisions/0006-leagues.md). The problems and proposed changes below (§3.1–3.3)
+predate all of that and are unrelated to it — they're about `Fight`/`Event`/`Ranking`
+integrity, still **not implemented** on this branch as of this writing (`Fight.winnerId` is
+still a bare string, `Event.status` is still a free-form string, `Fighter.wins/losses/draws`
+are still stored columns, not derived). Read them as the original plan, not the current
+state.
 
 ### 3.1 Problems with the current schema
 
@@ -169,7 +182,13 @@ cleanly separated.
 REST over HTTPS, JSON. Versioned under `/v1` from day one — cheap now, and mobile clients
 in the wild can't be force-upgraded later.
 
-### Public (unauthenticated, read-only)
+> **As built, the versioning is inconsistent** — worth fixing before it calcifies further,
+> not worth a doc rewrite to hide. Public reads (`/fighters`, `/events`, `/rankings/:weightClass`,
+> `/leagues`, `/products`) shipped unversioned; only the applicant and admin surfaces below
+> landed under `/v1`. The subsections below separate "originally proposed, not yet built"
+> from "actually shipped."
+
+### Public (unauthenticated, read-only) — proposed
 
 ```
 GET  /v1/fighters?weightClass=&q=&page=      list + search
@@ -180,10 +199,44 @@ GET  /v1/rankings                             all weight classes
 GET  /v1/rankings/:weightClass                one division
 ```
 
-### Admin (JWT required, admin role claim)
+### Public (unauthenticated, read-only) — actually shipped
+
+No versioning, no slug lookups yet (list-only), no pagination — all still open items from
+the proposal above.
+
+```
+GET  /health
+GET  /fighters?league=                 list, optionally filtered by league slug
+GET  /events?league=                   list, includes fights and league
+GET  /rankings/:weightClass?league=    optionally filtered by league slug
+GET  /leagues                          home + partnered
+GET  /products                         merch catalog, isAvailable only
+POST /sponsor-inquiries                public write — no auth, informational only (ADR 0006)
+```
+
+### Applicant (JWT required, any signed-in user) — shipped
+
+```
+GET  /v1/applications/me
+PUT  /v1/applications/me                save a draft
+POST /v1/applications/me/submit         DRAFT → PENDING_REVIEW
+```
+
+### Admin (JWT required, admin role — see [ADR 0007](decisions/0007-admin-role.md)) — shipped
 
 Login and token issuance are handled by Identity Platform, not by this API — there is no
-`/v1/auth/login` endpoint. The API only *verifies* the JWT. See §8.
+`/v1/auth/login` endpoint. The API only *verifies* the JWT, then checks the caller's local
+`User.role`. See ADR 0007 for why that's a database column and not a JWT claim.
+
+```
+GET  /v1/admin/applications?status=              defaults to everything except DRAFT
+POST /v1/admin/applications/:id/accept            creates the public Fighter, transactional
+POST /v1/admin/applications/:id/reject            { reviewNotes? }
+```
+
+### Admin (JWT required, admin role) — proposed, not yet built
+
+Roster and event content management. Nothing below exists as a route yet.
 
 ```
 POST   /v1/admin/fighters          PATCH/DELETE /v1/admin/fighters/:id
@@ -280,15 +333,22 @@ Postgres and files stay on Supabase. Fastify only verifies the JWT.
 | Methods (v1) | Email/password, Google OAuth |
 | Phone / SMS OTP | Deferred — see ADR 0002/0004 before reintroducing |
 | Transactional email | Resend SMTP into Identity Platform |
-| Admin access | Same system, elevated role claim |
+| Admin access | Same system; role is a database column, not a JWT claim — [ADR 0007](decisions/0007-admin-role.md) |
 | API verification | Fastify verifies the Identity Platform JWT |
 
 - Identity lives in Identity Platform; a thin local `User` profile row is keyed by
   the IdP UID (`sub`). Prisma still owns all application data.
 - **No RLS.** It earns its keep when untrusted clients query Postgres directly; here the
   API is the only database client.
-- A `requireAdmin` hook checks the role claim and guards every `/v1/admin/*` route.
-  There is no separate `AdminUser` table.
+- A `requireAdmin` hook verifies the JWT, then checks the caller's local `User.role` column
+  — **not** a Firebase custom claim, despite that being the more obvious fit for "elevated
+  role" in an Identity-Platform-shaped system. [ADR 0007](decisions/0007-admin-role.md) has
+  the reasoning: a DB column takes effect on the very next request, a custom claim only
+  after the client's token happens to refresh. There is still no separate `AdminUser`
+  table — admins are `User` rows with `role = ADMIN`.
+- The first admin(s) are bootstrapped via an `ADMIN_EMAILS` env var: whoever signs in with
+  a listed email is promoted on that sign-in. Promote-only — removing an email later does
+  not demote an existing admin.
 - Mobile stores tokens in `expo-secure-store` — **never** `AsyncStorage`, which is
   plaintext on disk. Web prefers Firebase session cookies (httpOnly) for SSR.
 - Rate-limit auth endpoints (`@fastify/rate-limit`).
@@ -446,6 +506,11 @@ Fighter profile, event page, rankings, home, search. SEO metadata.
 Auth, then CRUD for fighters/events/fights, result recording, ranking reorder, image upload.
 *Shippable: you can run the site without a developer.*
 
+*Partially shipped out of order:* auth (Identity Platform), the `requireAdmin` guard, and
+application review (list/accept/reject) all landed alongside Phase 3-shaped work — see
+[ADR 0007](decisions/0007-admin-role.md). Roster/event/fight/ranking CRUD, the actual
+subject of this phase, has not.
+
 **Phase 5 — Mobile**
 Expo app against the same API.
 *Shippable: TestFlight/internal build.*
@@ -467,10 +532,12 @@ solo.
 | 3 | Rankings: manual vs computed (§6) | Manual for v1 |
 | 4 | Weight classes — do the eight in the schema match NMFC's actual divisions? | Confirm; also whether women's divisions are needed |
 | 5 | Is there existing fighter/event data to import? | Affects Phase 1 |
+| 6 | Which home league is an applicant applying to? (ADR 0006) | Add a league field to the application form; until then every acceptance defaults to the flagship league and needs manual reassignment for Hand to Hand / Slap Wars |
 
 Items 4 and 5 are the ones I can't answer from the code — they're facts about how NMFC
-actually operates.
+actually operates. Item 6 is answerable from the code, just not yet acted on.
 
 **Settled:** cloud platform, database engine, image storage, and hybrid auth — see
 [ADR 0001](decisions/0001-cloud-platform.md) and
-[ADR 0004](decisions/0004-hybrid-platform.md).
+[ADR 0004](decisions/0004-hybrid-platform.md). Leagues and the admin-role mechanism — see
+[ADR 0006](decisions/0006-leagues.md) and [ADR 0007](decisions/0007-admin-role.md).
